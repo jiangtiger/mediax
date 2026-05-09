@@ -12,10 +12,6 @@ val decoderProject = project(":androidx-media-lib-decoder-ffmpeg")
 val androidExtension = decoderProject.extensions.findByType(LibraryExtension::class.java)
     ?: error("Could not find android extension")
 
-// Build with upstream compileSdk, but keep published AAR consumable by
-// downstream apps pinned to compileSdk 35 (e.g. AGP 8.6 toolchains).
-androidExtension.defaultConfig.aarMetadata.minCompileSdk = 35
-
 @Suppress("deprecation") // libraryVariants exposes deprecated type
 val releaseVariant: LibraryVariant = androidExtension.libraryVariants.first { variant ->
     variant.name == "release"

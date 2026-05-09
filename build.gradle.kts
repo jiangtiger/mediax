@@ -24,12 +24,13 @@ allprojects {
         google()
     }
 
-    // Keep minSdk and NDK consistent for all Android library modules.
-    afterEvaluate {
-        val android = extensions.findByType(LibraryExtension::class.java)
-        if (android != null) {
-            android.defaultConfig.minSdk = 21
-            android.ndkVersion = "26.1.10909125"
+    // Keep Android library modules compatible with downstream AGP 8.6/compileSdk 35 apps.
+    plugins.withId("com.android.library") {
+        extensions.findByType(LibraryExtension::class.java)?.apply {
+            compileSdk = 36
+            defaultConfig.minSdk = 21
+            defaultConfig.aarMetadata.minCompileSdk = 35
+            ndkVersion = "26.1.10909125"
         }
     }
 }
