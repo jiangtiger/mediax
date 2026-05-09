@@ -30,9 +30,10 @@ if [[ ! -f "${ROOT}/ffmpeg/configure" ]]; then
   exit 1
 fi
 
-# 空格分隔的 FFmpeg decoder 名；默认附带 h264 hevc vp9。仅需 Jellyfin 原版音频解码时用：
+# 空格分隔：互联网/IPTV 常见软解兜底（不含老旧 MPEG2/VP8 等）。仅需 Jellyfin 原版音频时用：
 #   EXTRA_FFMPEG_DECODERS= ./scripts/debian13-build.sh
-export EXTRA_FFMPEG_DECODERS="${EXTRA_FFMPEG_DECODERS-h264 hevc vp9}"
+# av1 CPU 较重；若 configure 失败可暂时去掉 av1 再编（upstream 脚本未绑 libdav1d 时需另做集成）。
+export EXTRA_FFMPEG_DECODERS="${EXTRA_FFMPEG_DECODERS-h264 hevc vp9 av1 opus}"
 
 echo "==> 编译 FFmpeg（EXTRA_FFMPEG_DECODERS=${EXTRA_FFMPEG_DECODERS}）"
 # git clone 默认不保证 build.sh 带 +x，用 bash 显式执行避免 Permission denied

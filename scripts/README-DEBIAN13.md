@@ -48,7 +48,8 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 
 根目录 `build.sh` 保留 Jellyfin 默认音频解码器；可通过环境变量 **追加** FFmpeg 解码器（空格分隔），对应 upstream `build_ffmpeg.sh` 的 `--enable-decoder=`。
 
-- `scripts/debian13-build.sh` 默认设置：`EXTRA_FFMPEG_DECODERS=h264 hevc vp9`（便于 H.264 / HEVC 等软解场景）。
+- `scripts/debian13-build.sh` 默认设置：`EXTRA_FFMPEG_DECODERS=h264 hevc vp9 av1 opus`（直播/Web 常见：H.264/HEVC/VP9/AV1 与 Opus 音频）。
+- **本仓库 JNI FFmpeg 不包含 `demuxer`/`protocol`**（AndroidX `build_ffmpeg.sh` 里禁用了 `avformat` 等），因此 **不能靠多开几个 decoder 解决 RTSP/RTP 乱序、华为等厂商非标 SDP**；那是 **拉流/解复用层**（如 ExoPlayer `RtspMediaSource`、自研 RTP 缓冲、`ijkplayer`/全量 FFmpeg、`ffmpeg_kit` DataSource）要处理的事。
 - 若要与上游完全一致（仅音频）：在同一 shell 命令里把变量设为空，例如  
   `EXTRA_FFMPEG_DECODERS= ./scripts/debian13-build.sh` 或 `EXTRA_FFMPEG_DECODERS= ./build.sh`。
 
@@ -58,8 +59,8 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 
 ```bash
 export ANDROID_HOME
-# 可选：覆盖默认视频解码器
-# export EXTRA_FFMPEG_DECODERS="h264 hevc"
+# 可选：覆盖默认解码器（例：去掉 av1 减轻 CPU）
+# export EXTRA_FFMPEG_DECODERS="h264 hevc vp9 opus"
 chmod +x scripts/debian13-build.sh
 ./scripts/debian13-build.sh
 ```
