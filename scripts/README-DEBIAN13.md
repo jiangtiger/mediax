@@ -54,9 +54,10 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 
 ## 4.1 GitHub Actions 发布后如何引用（GitHub Packages）
 
-仅在推送 **semver 标签**（与 `1.8.1` 同形：`主.次.补丁`，无 `v` 前缀）时触发 Actions 完整构建，并执行 `publishDefaultPublicationToGitHubPackagesRepository`。**向 `main`/`master` 推送分支不会触发该工作流。**  
-发布用的 Maven 版本取自 **标签名**（`-Pjellyfin.version=<tag>`），应与 `gradle.properties` 中维护的版本说明一致。示例：
-`git tag -a 1.8.1 -m "1.8.1" && git push origin 1.8.1`
+仅在推送**版本标签**时触发 Actions 完整构建，并执行 `publishDefaultPublicationToGitHubPackagesRepository`。**向 `main`/`master` 推送分支不会触发该工作流。**  
+支持标签形态：`1.8.1`、`v1.8.1`、`1.8.2-beta1`、`v1.8.2-beta2`。  
+发布用的 Maven 版本取自 **标签名**（`-Pjellyfin.version=<tag>`；若带 `v` 前缀会在构建逻辑里去掉），应与 `gradle.properties` 中维护的版本说明一致。示例：
+`git tag -a v1.8.2-beta1 -m "v1.8.2-beta1" && git push origin v1.8.2-beta1`
 
 下游 `build.gradle` 示例：
 

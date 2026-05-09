@@ -1,11 +1,15 @@
 name: AndroidX Media3 FFmpeg Decoder / Build
 
-# 仅 semver 标签（如 1.8.1）push 时跑完整构建并发包；main/master 分支 push 不触发。
+# 仅版本标签 push 时跑完整构建并发包；main/master 分支 push 不触发。
+# 支持：1.8.1、v1.8.1、1.8.2-beta1、v1.8.2-beta2
 on:
   pull_request:
   push:
     tags:
       - '[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+      - '[0-9]*.[0-9]*.[0-9]*-beta*'
+      - 'v[0-9]*.[0-9]*.[0-9]*-beta*'
 
 permissions:
   contents: read
