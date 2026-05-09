@@ -47,6 +47,20 @@ jobs:
       - name: Install correct NDK and CMake
         run: sudo ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --install "ndk;${NDK_VER}" "cmake;${CMAKE_VER}"
 
+      - name: Patch upstream minCompileSdk to 35 for published AAR metadata
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("media/common_config.gradle")
+          txt = p.read_text(encoding="utf-8")
+          old = "minCompileSdk = project.ext.compileSdkVersion"
+          new = "minCompileSdk = 35"
+          if old not in txt:
+            raise SystemExit(f"pattern not found in {p}: {old!r}")
+          p.write_text(txt.replace(old, new, 1), encoding="utf-8")
+          print("patched", p)
+          PY
+
       - name: Build ffmpeg (h264/hevc/vp9/av1/opus + Jellyfin audio set)
         run: bash ./build.sh
 
