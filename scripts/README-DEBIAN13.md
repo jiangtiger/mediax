@@ -50,6 +50,14 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 - **已设置且为非空**（`export EXTRA_FFMPEG_DECODERS="..."`）：**只追加**你列出的解码器（不再自动加 `h264…opus`，需自己写全）。
 - **已设置但为空串**（`EXTRA_FFMPEG_DECODERS= ./build.sh`）：**仅** Jellyfin 默认音频集，与上游最小集一致。
 
+### 4.0 相对 Jellyfin 默认的新增（简洁对比）
+
+- **新增视频解码器（4 个）**：`h264`、`hevc`、`vp9`、`av1`  
+  说明：覆盖当前互联网/OTT 常见视频编码，`av1` 软解 CPU 负载最高（中低端设备建议按需关闭）。
+- **新增音频解码器（1 个）**：`opus`  
+  说明：适配 Web/直播场景里更常见的 Opus 音频流。
+- **RTSP/RTP 边界**：以上是“解码能力”增强，不等于拉流协议增强。RTSP/RTP 乱序/非标 SDP 问题仍需在数据源/传输层处理。
+
 **本仓库 JNI FFmpeg 不含 `demuxer`/`protocol`**（AndroidX `build_ffmpeg.sh` 禁用了 `avformat` 等），**不能**依靠本 AAR 解决 RTSP/RTP 乱序、非标 SDP；需在拉流层处理。
 
 ## 4.1 GitHub Actions 发布后如何引用（GitHub Packages）
