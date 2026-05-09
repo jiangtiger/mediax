@@ -29,8 +29,12 @@ allprojects {
         extensions.findByType(LibraryExtension::class.java)?.apply {
             compileSdk = 36
             defaultConfig.minSdk = 21
-            defaultConfig.aarMetadata.minCompileSdk = 35
             ndkVersion = "26.1.10909125"
+            // common_config.gradle in upstream may set aarMetadata.minCompileSdk=compileSdk (36).
+            // Override again after project evaluation so published AARs stay consumable by compileSdk 35 apps.
+            project.afterEvaluate {
+                defaultConfig.aarMetadata.minCompileSdk = 35
+            }
         }
     }
 }
