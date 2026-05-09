@@ -19,6 +19,8 @@ chmod +x scripts/debian13-install-deps.sh
 ./scripts/debian13-install-deps.sh
 ```
 
+若以 **root** 执行（且系统未装 `sudo`），脚本会直接调用 `apt-get`，无需安装 `sudo`。
+
 需要 **JDK 17**（`JAVA_HOME` 建议指向 `/usr/lib/jvm/java-17-openjdk-amd64`）。
 
 ## 3. Android SDK / NDK / CMake
