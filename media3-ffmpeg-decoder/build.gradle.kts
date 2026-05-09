@@ -48,7 +48,10 @@ val patchReleaseAarMetadataForCompat by tasks.registering {
 
 val compatBundleReleaseAar by tasks.registering(Zip::class) {
     dependsOn(patchReleaseAarMetadataForCompat)
-    archiveFileName.set("media3-ffmpeg-decoder-release-compat.aar")
+    archiveBaseName.set("media3-ffmpeg-decoder")
+    archiveClassifier.set("")
+    archiveVersion.set(project.version.toString())
+    archiveExtension.set("aar")
     destinationDirectory.set(layout.buildDirectory.dir("compat"))
     from(compatAarPatchedDir)
 }
@@ -104,7 +107,10 @@ afterEvaluate {
     // Specify release artifacts and apply POM
     publishing.publications.create<MavenPublication>("default") {
         // Repackage release artifact and patch AAR metadata for downstream compileSdk 35 compatibility.
-        artifact(compatBundleReleaseAar)
+        artifact(compatBundleReleaseAar) {
+            extension = "aar"
+            classifier = null
+        }
 
         // Add JavaDocs and sources
         artifact(javadocJar)
