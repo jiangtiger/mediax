@@ -35,7 +35,8 @@ fi
 export EXTRA_FFMPEG_DECODERS="${EXTRA_FFMPEG_DECODERS-h264 hevc vp9}"
 
 echo "==> 编译 FFmpeg（EXTRA_FFMPEG_DECODERS=${EXTRA_FFMPEG_DECODERS}）"
-"$ROOT/build.sh"
+# git clone 默认不保证 build.sh 带 +x，用 bash 显式执行避免 Permission denied
+bash "$ROOT/build.sh"
 
 echo "==> Gradle :media3-ffmpeg-decoder:publishToMavenLocal"
 chmod +x "$ROOT/gradlew" 2>/dev/null || true
