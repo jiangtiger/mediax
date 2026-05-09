@@ -13,8 +13,32 @@ else
 fi
 
 "${APT_GET[@]}" update
+
+# Gradle/Android 构建需要 JVM 17+；JDK 21 完全可以。trixie 等新版 Debian 可能没有 openjdk-17-jdk，改用 21 或 default-jdk。
+install_jdk_if_needed() {
+  if command -v javac >/dev/null 2>&1; then
+    local major
+    major="$(javac -version 2>&1 | awk '{ver=$2; sub(/\..*/, "", ver); print ver}')"
+    if [[ "${major:-0}" -ge 17 ]]; then
+      echo "已检测到 javac 主版本 ${major}（>=17），跳过安装 JDK 软件包。" >&2
+      return 0
+    fi
+  fi
+  local p candidates=(openjdk-17-jdk openjdk-21-jdk default-jdk)
+  for p in "${candidates[@]}"; do
+    if apt-cache show "$p" >/dev/null 2>&1; then
+      echo "安装 JDK 软件包: $p" >&2
+      "${APT_GET[@]}" install -y "$p"
+      return 0
+    fi
+  done
+  echo "未找到可用的 openjdk-17-jdk / openjdk-21-jdk / default-jdk，请启用 Debian main 源或手动安装 JDK 17+。" >&2
+  return 1
+}
+
+install_jdk_if_needed
+
 "${APT_GET[@]}" install -y \
-  openjdk-17-jdk \
   git \
   curl \
   unzip \

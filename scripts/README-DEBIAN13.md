@@ -21,7 +21,9 @@ chmod +x scripts/debian13-install-deps.sh
 
 若以 **root** 执行（且系统未装 `sudo`），脚本会直接调用 `apt-get`，无需安装 `sudo`。
 
-需要 **JDK 17**（`JAVA_HOME` 建议指向 `/usr/lib/jvm/java-17-openjdk-amd64`）。
+构建需要 **JVM 17 或以上**（Gradle 要求）；**JDK 21 可用**，无负面影响。  
+Debian 13（trixie）仓库里可能没有 `openjdk-17-jdk`，脚本会依次尝试 `openjdk-21-jdk`、`default-jdk`；若已装好 JDK 17+（例如已有 `javac`），会自动跳过装 JDK。  
+`JAVA_HOME` 示例：`/usr/lib/jvm/java-21-openjdk-amd64` 或 `java-17-openjdk-amd64`。
 
 ## 3. Android SDK / NDK / CMake
 
