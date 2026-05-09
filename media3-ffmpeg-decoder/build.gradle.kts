@@ -1,8 +1,6 @@
 import com.android.build.gradle.LibraryExtension
 import com.android.build.gradle.api.LibraryVariant
 import com.android.build.gradle.tasks.BundleAar
-import groovy.namespace.QName
-import groovy.util.Node
 import org.gradle.api.publish.PublishingExtension
 
 plugins {
@@ -11,9 +9,6 @@ plugins {
 }
 
 val decoderProject = project(":androidx-media-lib-decoder-ffmpeg")
-val decoderReleaseVersion = checkNotNull(decoderProject.ext["releaseVersion"]?.toString()) {
-    "Couldn't read release version from androidx.media3 project"
-}
 val androidExtension = decoderProject.extensions.findByType(LibraryExtension::class.java)
     ?: error("Could not find android extension")
 
@@ -117,13 +112,6 @@ afterEvaluate {
                 }
             }
 
-            withXml {
-                // Make implicit dependency on androidx.media3 modules explicit by including them in the POM
-                asNode().getOrCreateNode("dependencies").apply {
-                    appendDependency("androidx.media3", "media3-decoder", decoderReleaseVersion)
-                    appendDependency("androidx.media3", "media3-exoplayer", decoderReleaseVersion)
-                }
-            }
         }
     }
 
@@ -137,19 +125,5 @@ afterEvaluate {
             val publishing: PublishingExtension by project
             sign(publishing.publications)
         }
-    }
-}
-
-fun Node.getOrCreateNode(name: String): Node {
-    return getAt(QName(name)).firstOrNull() as Node? ?: appendNode(name)
-}
-
-fun Node.appendDependency(group: String, id: String, version: String) {
-    appendNode("dependency").apply {
-        appendNode("groupId", group)
-        appendNode("artifactId", id)
-        appendNode("version", version)
-        appendNode("scope", "compile")
-        appendNode("type", "aar")
     }
 }
