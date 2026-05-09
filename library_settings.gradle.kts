@@ -1,7 +1,9 @@
 val mediaRootDir = file("media")
 
+// Gradle module paths (must start with ':')
 val modulePrefix = ":androidx-media-"
-gradle.extra["androidxMediaModulePrefix"] = modulePrefix
+// androidx-media constants.gradle prepends ':' — value here must NOT start with ':' or deps become "::androidx-media-..."
+gradle.extra["androidxMediaModulePrefix"] = modulePrefix.removePrefix(":")
 
 if (!gradle.extra.has("androidxMediaSettingsDir")) {
     gradle.extra["androidxMediaSettingsDir"] = mediaRootDir.getCanonicalPath()
@@ -18,6 +20,10 @@ project(modulePrefix + "lib-exoplayer").projectDir = File(mediaRootDir, "librari
 
 include(modulePrefix + "lib-exoplayer-dash")
 project(modulePrefix + "lib-exoplayer-dash").projectDir = File(mediaRootDir, "libraries/exoplayer_dash")
+include(modulePrefix + "lib-inspector")
+project(modulePrefix + "lib-inspector").projectDir = File(mediaRootDir, "libraries/inspector")
+include(modulePrefix + "lib-inspector-frame")
+project(modulePrefix + "lib-inspector-frame").projectDir = File(mediaRootDir, "libraries/inspector_frame")
 
 include(modulePrefix + "lib-database")
 project(modulePrefix + "lib-database").projectDir = File(mediaRootDir, "libraries/database")
