@@ -2,6 +2,9 @@ import com.android.build.gradle.LibraryExtension
 import com.android.build.gradle.api.LibraryVariant
 import com.android.build.gradle.tasks.BundleAar
 import org.gradle.api.publish.PublishingExtension
+import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.bundling.Zip
+import java.util.Properties
 
 plugins {
     `maven-publish`
@@ -18,6 +21,37 @@ val releaseVariant: LibraryVariant = androidExtension.libraryVariants.first { va
 }
 
 val bundleReleaseAar by decoderProject.tasks.getting(BundleAar::class)
+
+val compatAarUnpackDir = layout.buildDirectory.dir("compat/aar-unpacked")
+val compatAarPatchedDir = layout.buildDirectory.dir("compat/aar-patched")
+
+val unpackReleaseAarForCompat by tasks.registering(Sync::class) {
+    dependsOn(bundleReleaseAar)
+    from(zipTree(bundleReleaseAar.archiveFile))
+    into(compatAarUnpackDir)
+}
+
+val patchReleaseAarMetadataForCompat by tasks.registering {
+    dependsOn(unpackReleaseAarForCompat)
+    doLast {
+        copy {
+            from(compatAarUnpackDir)
+            into(compatAarPatchedDir)
+        }
+        val metadataFile = compatAarPatchedDir.get().file("META-INF/com/android/build/gradle/aar-metadata.properties").asFile
+        val props = Properties()
+        metadataFile.inputStream().use { props.load(it) }
+        props.setProperty("minCompileSdk", "35")
+        metadataFile.outputStream().use { props.store(it, null) }
+    }
+}
+
+val compatBundleReleaseAar by tasks.registering(Zip::class) {
+    dependsOn(patchReleaseAarMetadataForCompat)
+    archiveFileName.set("media3-ffmpeg-decoder-release-compat.aar")
+    destinationDirectory.set(layout.buildDirectory.dir("compat"))
+    from(compatAarPatchedDir)
+}
 
 val generateJavadoc by tasks.registering(Javadoc::class) {
     group = "publishing"
@@ -69,8 +103,8 @@ configure<PublishingExtension> {
 afterEvaluate {
     // Specify release artifacts and apply POM
     publishing.publications.create<MavenPublication>("default") {
-        // Repackage release artifacts of extension
-        artifact(bundleReleaseAar)
+        // Repackage release artifact and patch AAR metadata for downstream compileSdk 35 compatibility.
+        artifact(compatBundleReleaseAar)
 
         // Add JavaDocs and sources
         artifact(javadocJar)
