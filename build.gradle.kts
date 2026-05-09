@@ -24,13 +24,10 @@ allprojects {
         google()
     }
 
-    // Keep consumer compatibility with AGP 8.6 / compileSdk 35 projects.
-    // media submodule release branch may default to compileSdk 36, which raises
-    // AAR minCompileSdk and breaks downstream apps pinned to 35.
+    // Keep minSdk and NDK consistent for all Android library modules.
     afterEvaluate {
         val android = extensions.findByType(LibraryExtension::class.java)
         if (android != null) {
-            android.compileSdk = 35
             android.defaultConfig.minSdk = 21
             android.ndkVersion = "26.1.10909125"
         }
