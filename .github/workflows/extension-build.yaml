@@ -57,9 +57,9 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             VER="${GITHUB_REF#refs/tags/}"
-            ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal -Pjellyfin.version="$VER"
+            bash ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal -Pjellyfin.version="$VER"
           else
-            ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal
+            bash ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal
           fi
 
       - name: Publish to GitHub Packages (semver tag only)
@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           VER="${GITHUB_REF#refs/tags/}"
-          ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
+          bash ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
 
       - name: Upload Maven-local layout (org/jellyfin/media3)
         uses: actions/upload-artifact@v4
