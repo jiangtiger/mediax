@@ -86,8 +86,9 @@ repositories {
 
 每次 CI 还会上传 **`maven-org-jellyfin-media3`** 构件，可从 Actions 页下载完整目录备用。
 
-> 兼容性说明：自 `v1.8.1-beta2` 起，发布 POM 不再强行声明 `androidx.media3` 的传递版本，
-> 由下游工程自行锁定 Media3 版本（避免把应用编译链意外抬到 `1.10.0` / compileSdk 36）。
+> 兼容性说明：自 `v1.8.1-beta2`（及后续 beta，如 `v1.8.1-beta3`）起，发布 POM 不再强行声明 `androidx.media3` 的传递版本，
+> 由下游工程自行锁定 Media3 版本（避免把应用编译链意外抬到 `1.10.0` / compileSdk 36）。  
+> GitHub Packages **不可覆盖已发布版本**；重发需递增标签（如遇 409）。
 
 ## 5. 一键构建
 
