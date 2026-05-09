@@ -1,11 +1,11 @@
 name: AndroidX Media3 FFmpeg Decoder / Build
 
+# 仅 semver 标签（如 1.8.1）push 时跑完整构建并发包；main/master 分支 push 不触发。
 on:
-  push:
-    branches:
-      - main
-      - master
   pull_request:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
 
 permissions:
   contents: read
@@ -47,13 +47,26 @@ jobs:
         run: bash ./build.sh
 
       - name: Build extension (Maven local layout for CI artifact)
-        run: ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal
+        shell: bash
+        env:
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VER="${GITHUB_REF#refs/tags/}"
+            ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal -Pjellyfin.version="$VER"
+          else
+            ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal
+          fi
 
-      - name: Publish to GitHub Packages (main / master only)
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      - name: Publish to GitHub Packages (semver tag only)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository --no-daemon
+          GITHUB_REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          VER="${GITHUB_REF#refs/tags/}"
+          ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
 
       - name: Upload Maven-local layout (org/jellyfin/media3)
         uses: actions/upload-artifact@v4
