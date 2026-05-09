@@ -3,8 +3,13 @@ name: AndroidX Media3 FFmpeg Decoder / Build
 on:
   push:
     branches:
+      - main
       - master
   pull_request:
+
+permissions:
+  contents: read
+  packages: write
 
 env:
   NDK_VER: 26.1.10909125
@@ -19,21 +24,39 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
+
       - name: Setup Java
         uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
           distribution: temurin
           java-version: 17
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@ac638b010cf58a27ee6c972d7336334ccaf61c96 # v4.4.1
+
       - name: Cache NDK
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: /usr/local/lib/android/sdk/ndk/${{ env.NDK_VER }}
           key: ${{ runner.os }}-${{ env.NDK_VER }}
+
       - name: Install correct NDK and CMake
         run: sudo ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --install "ndk;${NDK_VER}" "cmake;${CMAKE_VER}"
-      - name: Build ffmpeg
-        run: ./build.sh
-      - name: Build extension and publish library locally
+
+      - name: Build ffmpeg (h264/hevc/vp9/av1/opus + Jellyfin audio set)
+        run: bash ./build.sh
+
+      - name: Build extension (Maven local layout for CI artifact)
         run: ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal
+
+      - name: Publish to GitHub Packages (main / master only)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository --no-daemon
+
+      - name: Upload Maven-local layout (org/jellyfin/media3)
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dc8b16b # v4.6.2
+        with:
+          name: maven-org-jellyfin-media3
+          path: ~/.m2/repository/org/jellyfin/media3/

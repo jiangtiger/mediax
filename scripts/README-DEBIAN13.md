@@ -46,12 +46,34 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 
 ## 4. FFmpeg 解码器列表
 
-根目录 `build.sh` 保留 Jellyfin 默认音频解码器；可通过环境变量 **追加** FFmpeg 解码器（空格分隔），对应 upstream `build_ffmpeg.sh` 的 `--enable-decoder=`。
+- **未设置** `EXTRA_FFMPEG_DECODERS` 时：`build.sh` 与 CI 行为一致：在 Jellyfin 默认 **音频** 解码器之外，附加 **`h264 hevc vp9 av1 opus`**（与 `debian13-build.sh` 默认导出一致）。
+- **已设置且为非空**（`export EXTRA_FFMPEG_DECODERS="..."`）：**只追加**你列出的解码器（不再自动加 `h264…opus`，需自己写全）。
+- **已设置但为空串**（`EXTRA_FFMPEG_DECODERS= ./build.sh`）：**仅** Jellyfin 默认音频集，与上游最小集一致。
 
-- `scripts/debian13-build.sh` 默认设置：`EXTRA_FFMPEG_DECODERS=h264 hevc vp9 av1 opus`（直播/Web 常见：H.264/HEVC/VP9/AV1 与 Opus 音频）。
-- **本仓库 JNI FFmpeg 不包含 `demuxer`/`protocol`**（AndroidX `build_ffmpeg.sh` 里禁用了 `avformat` 等），因此 **不能靠多开几个 decoder 解决 RTSP/RTP 乱序、华为等厂商非标 SDP**；那是 **拉流/解复用层**（如 ExoPlayer `RtspMediaSource`、自研 RTP 缓冲、`ijkplayer`/全量 FFmpeg、`ffmpeg_kit` DataSource）要处理的事。
-- 若要与上游完全一致（仅音频）：在同一 shell 命令里把变量设为空，例如  
-  `EXTRA_FFMPEG_DECODERS= ./scripts/debian13-build.sh` 或 `EXTRA_FFMPEG_DECODERS= ./build.sh`。
+**本仓库 JNI FFmpeg 不含 `demuxer`/`protocol`**（AndroidX `build_ffmpeg.sh` 禁用了 `avformat` 等），**不能**依靠本 AAR 解决 RTSP/RTP 乱序、非标 SDP；需在拉流层处理。
+
+## 4.1 GitHub Actions 发布后如何引用（GitHub Packages）
+
+`main` / `master` 的 push 会执行 `publishDefaultPublicationToGitHubPackagesRepository`（坐标仍为 `org.jellyfin.media3:media3-ffmpeg-decoder`，版本见 `gradle.properties` 的 `jellyfin.version`）。
+
+下游 `build.gradle` 示例：
+
+```kotlin
+repositories {
+  maven {
+    url = uri("https://maven.pkg.github.com/vesaaa/mediax")
+    credentials {
+      username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
+      password = project.findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
+    }
+  }
+}
+// implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.8.1")
+```
+
+阅读 GitHub 包需 **有权限的 token**（如 `read:packages` 的 PAT）；同一账号对公开仓库可读时按 GitHub 当前策略为准。
+
+每次 CI 还会上传 **`maven-org-jellyfin-media3`** 构件，可从 Actions 页下载完整目录备用。
 
 ## 5. 一键构建
 
@@ -75,7 +97,7 @@ chmod +x scripts/debian13-build.sh
 
 `~/.m2/repository/org/jellyfin/media3/media3-ffmpeg-decoder/<version>/`
 
-版本号由 Gradle 属性 `jellyfin.version` 决定（未设置时多为 `latest-SNAPSHOT`，见 `buildSrc`）。
+版本号由根目录 `gradle.properties` 的 `jellyfin.version` 决定（见 `buildSrc`）。
 
 仅需要 **decoder 子模块** 的 release AAR 时：
 

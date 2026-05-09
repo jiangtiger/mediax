@@ -3,6 +3,7 @@ import com.android.build.gradle.api.LibraryVariant
 import com.android.build.gradle.tasks.BundleAar
 import groovy.namespace.QName
 import groovy.util.Node
+import org.gradle.api.publish.PublishingExtension
 
 plugins {
     `maven-publish`
@@ -55,6 +56,21 @@ val sourcesJar by tasks.registering(Jar::class) {
     }
 }
 
+configure<PublishingExtension> {
+    val token = System.getenv("GITHUB_TOKEN").orEmpty()
+    val slug = System.getenv("GITHUB_REPOSITORY").orEmpty()
+    if (token.isNotEmpty() && slug.isNotEmpty()) {
+        repositories.maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/$slug")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR").orEmpty()
+                password = token
+            }
+        }
+    }
+}
+
 afterEvaluate {
     // Specify release artifacts and apply POM
     publishing.publications.create<MavenPublication>("default") {
@@ -68,12 +84,12 @@ afterEvaluate {
         pom {
             name.set("Jellyfin AndroidX Media3 libraries - $artifactId")
             description.set("AndroidX Media3 FFmpeg decoder used in the Jellyfin project")
-            url.set("https://github.com/jellyfin/jellyfin-androidx-media")
+            url.set("https://github.com/vesaaa/mediax")
 
             scm {
-                connection.set("scm:git:git://github.com/jellyfin/jellyfin-androidx-media.git")
-                developerConnection.set("scm:git:ssh://github.com:jellyfin/jellyfin-androidx-media.git")
-                url.set("https://github.com/jellyfin/jellyfin-androidx-media/tree/master")
+                connection.set("scm:git:git://github.com/vesaaa/mediax.git")
+                developerConnection.set("scm:git:ssh://git@github.com/vesaaa/mediax.git")
+                url.set("https://github.com/vesaaa/mediax/tree/main")
             }
 
             licenses {
