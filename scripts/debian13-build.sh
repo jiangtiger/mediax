@@ -31,8 +31,9 @@ if [[ ! -f "${ROOT}/ffmpeg/configure" ]]; then
 fi
 
 # 空格分隔的 FFmpeg decoder 名，传给 androidx build_ffmpeg.sh 的 --enable-decoder=
-# 默认加入常见视频软解；仅需 Jellyfin 原版音频集合时可置空: EXTRA_FFMPEG_DECODERS=
-export EXTRA_FFMPEG_DECODERS="${EXTRA_FFMPEG_DECODERS:-h264 hevc vp9}"
+# 默认加入常见视频软解。仅需 Jellyfin 原版音频集合时请显式置空（注意用 ${VAR-word} 而非 :-，否则空字符串仍会回落到默认）：
+#   EXTRA_FFMPEG_DECODERS= ./scripts/debian13-build.sh
+export EXTRA_FFMPEG_DECODERS="${EXTRA_FFMPEG_DECODERS-h264 hevc vp9}"
 
 echo "==> 编译 FFmpeg（EXTRA_FFMPEG_DECODERS=${EXTRA_FFMPEG_DECODERS}）"
 "$ROOT/build.sh"

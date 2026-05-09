@@ -45,8 +45,8 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 根目录 `build.sh` 保留 Jellyfin 默认音频解码器；可通过环境变量 **追加** FFmpeg 解码器（空格分隔），对应 upstream `build_ffmpeg.sh` 的 `--enable-decoder=`。
 
 - `scripts/debian13-build.sh` 默认设置：`EXTRA_FFMPEG_DECODERS=h264 hevc vp9`（便于 H.264 / HEVC 等软解场景）。
-- 若要与上游完全一致（仅音频）：  
-  `EXTRA_FFMPEG_DECODERS=`（空）后再运行 `./build.sh` 或 `./scripts/debian13-build.sh`（需导出空变量覆盖默认）。
+- 若要与上游完全一致（仅音频）：在同一 shell 命令里把变量设为空，例如  
+  `EXTRA_FFMPEG_DECODERS= ./scripts/debian13-build.sh` 或 `EXTRA_FFMPEG_DECODERS= ./build.sh`。
 
 ## 5. 一键构建
 

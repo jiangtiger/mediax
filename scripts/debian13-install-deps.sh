@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Debian 13 / bookworm+：安装本机构建 mediax 所需的常见依赖（不含 Android SDK，见 README）。
+# Debian 13（及兼容版本）：安装本机构建 mediax 所需的常见依赖（不含 Android SDK，见 README）。
 set -euo pipefail
 
 sudo apt-get update
