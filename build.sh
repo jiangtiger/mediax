@@ -21,6 +21,12 @@ elif [ -n "${EXTRA_FFMPEG_DECODERS}" ]; then
   ENABLED_DECODERS+=("${EXTRA[@]}")
 fi
 
+# AV3A（Audio Vivid）：需 ENABLE_AV3A=1 且 FFmpeg 子模块含 libarcdav3a，见 scripts/README-AV3A.md
+if [ "${ENABLE_AV3A:-0}" = "1" ]; then
+  ENABLED_DECODERS+=(libarcdav3a)
+  bash "$(dirname "$0")/scripts/apply-av3a-overlays.sh"
+fi
+
 # Create softlink to ffmpeg
 ln -sf "${FFMPEG_PATH}" "${FFMPEG_MOD_PATH}/jni/ffmpeg"
 

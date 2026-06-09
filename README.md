@@ -18,6 +18,10 @@
 | 视频（相对上游默认多出） | `h264`、`hevc`、`vp9`、`av1` |
 | 音频（相对上游默认多出） | `opus` |
 
+### AV3A（Audio Vivid / 菁彩声）
+
+设置 **`ENABLE_AV3A=1`** 构建时，在上方解码器列表基础上追加 **`libarcdav3a`**，并为 `audio/av3a` 注册 FFmpeg 映射。需使用已集成 AV3A 的 **FFmpeg 补丁源码**（官方 `release/6.0` 不含该解码器）。完整步骤见 **[scripts/README-AV3A.md](scripts/README-AV3A.md)**。
+
 简要说明：**`av1` 软解 CPU 占用高**；**RTSP/RTP 乱序等非标流**不属于本 JNI FFmpeg 解码层能力，需在 App 拉流/解复用侧处理（见 Debian 文档）。  
 覆盖方式与完整说明见下方的 Debian 文档第 4 节。
 
