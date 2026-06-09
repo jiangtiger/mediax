@@ -74,7 +74,11 @@ X86_STATIC_OPTIONS="
  --extra-ldexeflags=-pie
  --disable-v4l2-m2m
  --disable-vulkan
+ --disable-decoder=av1,vp9
  "
+
+# x86 无 AV3A；补丁 FFmpeg 6.1 在 --disable-asm 下编 av1 会缺 libavutil 符号（ff_av1_framerate）
+X86_SKIP_DECODERS=(libarcdav3a av1 vp9)
 
 TOOLCHAIN_PREFIX="${NDK_PATH}/toolchains/llvm/prebuilt/${HOST_PLATFORM}/bin"
 if [[ ! -d "${TOOLCHAIN_PREFIX}" ]]; then
@@ -113,7 +117,11 @@ build_x86_static() {
   local -a extra_configure=("$@")
   local options="${X86_STATIC_OPTIONS}"
   for decoder in "${ENABLED_DECODERS[@]}"; do
-    [[ "${decoder}" == "libarcdav3a" ]] && continue
+    local skip=0
+    for x in "${X86_SKIP_DECODERS[@]}"; do
+      [[ "${decoder}" == "${x}" ]] && skip=1 && break
+    done
+    [[ "${skip}" -eq 1 ]] && continue
     options="${options} --enable-decoder=${decoder}"
   done
   cd "${FFMPEG_SRC}"
