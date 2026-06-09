@@ -128,7 +128,7 @@ chmod +x scripts/debian13-build.sh
 ## 7. 常见问题
 
 - **子模块目录为空**：务必执行 `git submodule update --init --recursive`。
-- **`ffmpeg` 子模块克隆极慢或中途失败（exit 1）**：`.gitmodules` 指向 `https://git.ffmpeg.org/ffmpeg.git`，在内网或跨境链路上容易超时。可先放宽低速超时后重试，例如：  
+- **`ffmpeg` 子模块克隆极慢或中途失败（exit 1）**：`.gitmodules` 默认指向 `https://github.com/FFmpeg/FFmpeg.git`（`release/6.0`）；若仍失败可先放宽低速超时后重试，例如：  
   `export GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=600`  
   再执行 `git submodule update --init --recursive`；仍失败则分步执行 `git submodule update --init media`，成功后再 `git submodule update --init ffmpeg`，必要时在网络较好的环境打包 `mediax` 目录后再拷贝到 Debian。
 - **NDK 路径不存在**：确认 `ls "$ANDROID_HOME/ndk/26.1.10909125"`。
