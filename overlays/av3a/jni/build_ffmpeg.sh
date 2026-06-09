@@ -102,7 +102,7 @@ build_arm_av3a() {
     options="${options} --enable-decoder=${decoder}"
   done
   cd "${FFMPEG_SRC}"
-  ./configure "${extra_configure[@]}" ${options}
+  bash ./configure "${extra_configure[@]}" ${options}
   make -j"$JOBS"
   make install-libs
   copy_av3a_prebuilt "${out_abi}" "${dep_cpu}"
@@ -117,7 +117,7 @@ build_x86_static() {
     options="${options} --enable-decoder=${decoder}"
   done
   cd "${FFMPEG_SRC}"
-  ./configure "${extra_configure[@]}" ${options}
+  bash ./configure "${extra_configure[@]}" ${options}
   make -j"$JOBS"
   make install-libs
   make clean

@@ -32,6 +32,10 @@ mkdir -p "${FFMPEG_DIR}"
 cp -a "${TMP}/src/ffmpeg/ffmpeg-6.1/." "${FFMPEG_DIR}/"
 cp -a "${TMP}/src/ffmpeg/dependency" "${FFMPEG_DIR}/dependency"
 
+# sparse checkout + cp 可能丢失可执行位，configure 须可执行（或由 bash 调用）
+chmod +x "${FFMPEG_DIR}/configure"
+find "${FFMPEG_DIR}/ffbuild" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+
 test -f "${FFMPEG_DIR}/configure"
 test -f "${FFMPEG_DIR}/libavcodec/libarcdav3a.c"
 for dep_cpu in armv7-a armv8-a; do
