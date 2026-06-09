@@ -63,6 +63,9 @@ jobs:
           print("patched", p)
           PY
 
+      - name: Normalize shell scripts (LF)
+        run: find . -name '*.sh' -not -path './.git/*' -exec sed -i 's/\r$//' {} +
+
       - name: Fetch patched FFmpeg for AV3A (av3a 标签)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref, 'av3a')
         run: bash scripts/fetch-av3a-ffmpeg.sh

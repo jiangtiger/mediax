@@ -34,5 +34,9 @@ cp -a "${TMP}/src/ffmpeg/dependency" "${FFMPEG_DIR}/dependency"
 
 test -f "${FFMPEG_DIR}/configure"
 test -f "${FFMPEG_DIR}/libavcodec/libarcdav3a.c"
-test -d "${FFMPEG_DIR}/dependency/android/armv8-a"
+for dep_cpu in armv7-a armv8-a; do
+  for lib in libav3a_binaural_render.so libAVS3AudioDec.so; do
+    test -s "${FFMPEG_DIR}/dependency/android/${dep_cpu}/${lib}"
+  done
+done
 echo "Patched FFmpeg ready at ${FFMPEG_DIR}"
