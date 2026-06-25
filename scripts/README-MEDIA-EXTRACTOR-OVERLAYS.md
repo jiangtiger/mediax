@@ -19,8 +19,8 @@ bash ./gradlew :media3-extractor-vstv:publishToMavenLocal -Pjellyfin.version=1.8
 git tag 1.8.0+vstv2 && git push origin 1.8.0+vstv2
 ```
 
-> **勿在 Media3 1.10 子模块上发布 `1.8.0+vstv*`**：artifact 版本号虽写 1.8.0，但若基于 1.10 编译，与 VSTV 内 ExoPlayer 1.8.0 混用会在播放时 `NoSuchMethodError`（`Metadata.getMatchingEntries`）。  
-> FFmpeg 扩展同理：见 `scripts/README-DEBIAN13.md`——POM 不强行抬升下游 Media3，由 app 自行锁定 **1.8.x**。
+> overlay 须在 **Media3 1.8.0** 子模块上应用（`MEDIAX_MEDIA_REF=1.8.0`）。`NalUnitUtil` 等文件基于 1.10 port，已去掉 **H.266/VVC** 等 1.8.0 不存在的 API。  
+> **勿在 1.10 子模块上发布 `1.8.0+vstv*`**：与 VSTV 内 ExoPlayer 1.8.0 混用会 `NoSuchMethodError`（`Metadata.getMatchingEntries`）。
 
 ## VSTV 引用
 

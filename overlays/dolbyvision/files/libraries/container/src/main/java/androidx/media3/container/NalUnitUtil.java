@@ -147,18 +147,6 @@ public final class NalUnitUtil {
   /** H.265 unspecified NAL unit. */
   public static final int H265_NAL_UNIT_TYPE_UNSPECIFIED = 48;
 
-  // VVC NAL unit types.
-  // See ITU-T Rec. H.266 (09/2023) Table 5 – NAL unit type codes and NAL unit type classes.
-
-  /** VVC operating point information (OPI_NUT). */
-  public static final int VVC_NAL_UNIT_TYPE_OPI = 12;
-
-  /** VVC decoding capability information (DCI_NUT). */
-  public static final int VVC_NAL_UNIT_TYPE_DCI = 13;
-
-  /** VVC prefixed supplemental enhancement information (PREFIX_SEI_NUT). */
-  public static final int VVC_NAL_UNIT_TYPE_PREFIX_SEI = 23;
-
   /** Holds data parsed from a H.264 sequence parameter set NAL unit. */
   public static final class SpsData {
 
@@ -676,11 +664,6 @@ public final class NalUnitUtil {
         return (data[offset] & 0x1F) == H264_NAL_UNIT_TYPE_SEI;
       case MimeTypes.VIDEO_H265:
         return ((data[offset] & 0x7E) >> 1) == H265_NAL_UNIT_TYPE_PREFIX_SEI;
-      case MimeTypes.VIDEO_H266:
-        // See ITU-T Rec. H.266 (09/2023) Section 7.3.1.2.
-        // The NAL unit type is in the first 5 bits of the second byte.
-        int nalUnitType = (data[offset + 1] & 0xF8) >> 3;
-        return nalUnitType == VVC_NAL_UNIT_TYPE_PREFIX_SEI;
       default:
         return false;
     }
@@ -749,8 +732,7 @@ public final class NalUnitUtil {
     if (Objects.equals(mimeType, MimeTypes.VIDEO_H264)) {
       return 1;
     }
-    if (Objects.equals(mimeType, MimeTypes.VIDEO_H265)
-        || Objects.equals(mimeType, MimeTypes.VIDEO_H266)) {
+    if (Objects.equals(mimeType, MimeTypes.VIDEO_H265)) {
       return 2;
     }
     return 0;
