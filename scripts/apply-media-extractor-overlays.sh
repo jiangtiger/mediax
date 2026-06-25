@@ -5,7 +5,7 @@ set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MEDIA="${ROOT}/media"
-PATCH="${ROOT}/overlays/dolbyvision/pr3280.patch"
+DV_FILES="${ROOT}/overlays/dolbyvision/files"
 FLV_SRC="${ROOT}/overlays/enhanced-flv/flv"
 FLV_DST="${MEDIA}/libraries/extractor/src/main/java/androidx/media3/extractor/flv"
 NAL_DST="${MEDIA}/libraries/container/src/main/java/androidx/media3/container/NalUnitUtil.java"
@@ -15,16 +15,15 @@ if [[ ! -d "${MEDIA}/libraries/extractor" ]]; then
   exit 1
 fi
 
-echo "==> 应用杜比视界 patch (androidx/media#3280)"
-cd "${MEDIA}"
-if git apply --check "${PATCH}" 2>/dev/null; then
-  git apply "${PATCH}"
-  echo "    pr3280.patch 已应用"
-elif grep -q "H265_NAL_UNIT_TYPE_DV_RPU" "${NAL_DST}" 2>/dev/null; then
-  echo "    杜比视界 patch 已存在，跳过"
+echo "==> 应用杜比视界 overlay (androidx/media#3280, media submodule 7ce3aa2+)"
+if grep -q "H265_NAL_UNIT_TYPE_DV_RPU" "${NAL_DST}" 2>/dev/null; then
+  echo "    杜比视界 overlay 已存在，跳过"
 else
-  echo "    警告: patch 无法应用，请检查 media 子模块版本是否与 Media3 1.8.x 对齐"
-  exit 1
+  cp -f "${DV_FILES}/libraries/container/src/main/java/androidx/media3/container/NalUnitUtil.java" \
+    "${MEDIA}/libraries/container/src/main/java/androidx/media3/container/NalUnitUtil.java"
+  cp -f "${DV_FILES}/libraries/extractor/src/main/java/androidx/media3/extractor/ts/"*.java \
+    "${MEDIA}/libraries/extractor/src/main/java/androidx/media3/extractor/ts/"
+  echo "    已覆盖 5 个 TS/DV 源文件"
 fi
 
 echo "==> 覆盖 Enhanced FLV (HEVC codec type 12)"

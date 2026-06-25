@@ -6,7 +6,7 @@
 
 | Overlay | 来源 | 作用 |
 |---------|------|------|
-| **杜比视界 TS** | [androidx/media#3280](https://github.com/androidx/media/pull/3280) | HLS/MPEG-TS 内 DV 流正确输出 `video/dolby-vision`，避免 Profile 5 绿/洋红偏色 |
+| **杜比视界 TS** | [androidx/media#3280](https://github.com/androidx/media/pull/3280)（已 port 到 media 子模块 `7ce3aa2` / Media3 1.10.0） | HLS/MPEG-TS 内 DV 流正确输出 `video/dolby-vision`，避免 Profile 5 绿/洋红偏色 |
 | **Enhanced FLV HEVC** | 社区实现（codec type 12 + `HevcConfig`） | FLV 容器内 H.265 解复用 |
 
 ## 本地应用 overlay
