@@ -1,7 +1,7 @@
 name: AndroidX Media3 FFmpeg Decoder / Build
 
 # 仅版本标签 push 时跑完整构建并发包；main/master 分支 push 不触发。
-# 支持：1.8.1、v1.8.1、1.8.2-beta1、1.8.2-av3a1 等
+# 支持：1.8.1、v1.8.1、1.8.2-beta1、1.8.2-av3a1、1.8.0+vstv1 等
 on:
   pull_request:
   push:
@@ -12,6 +12,7 @@ on:
       - 'v[0-9]*.[0-9]*.[0-9]*-beta*'
       - '*-av3a*'
       - 'v*-av3a*'
+      - '*+vstv*'
 
 permissions:
   contents: read
@@ -74,7 +75,11 @@ jobs:
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref, 'av3a')
         run: bash scripts/apply-av3a-java-overlay.sh
 
+      - name: Apply media extractor overlays (DV TS + Enhanced FLV)
+        run: bash scripts/apply-media-extractor-overlays.sh
+
       - name: Build ffmpeg (h264/hevc/vp9/av1/opus + Jellyfin audio; av3a 标签自动 ENABLE_AV3A=1)
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/') || !contains(github.ref, '+vstv')
         env:
           ENABLE_AV3A: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref, 'av3a')) && '1' || (vars.MEDIAX_ENABLE_AV3A || '0') }}
         run: bash ./build.sh
@@ -86,9 +91,13 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             VER="${GITHUB_REF#refs/tags/}"
-            bash ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal -Pjellyfin.version="$VER"
+            if [[ "$VER" == *"+vstv"* ]]; then
+              bash ./gradlew :media3-extractor-vstv:publishToMavenLocal -Pjellyfin.version="$VER"
+            else
+              bash ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal :media3-extractor-vstv:publishToMavenLocal -Pjellyfin.version="$VER"
+            fi
           else
-            bash ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal
+            bash ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal :media3-extractor-vstv:publishToMavenLocal
           fi
 
       - name: Publish to GitHub Packages (semver tag only)
@@ -99,7 +108,11 @@ jobs:
         shell: bash
         run: |
           VER="${GITHUB_REF#refs/tags/}"
-          bash ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
+          if [[ "$VER" == *"+vstv"* ]]; then
+            bash ./gradlew :media3-extractor-vstv:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
+          else
+            bash ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository :media3-extractor-vstv:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
+          fi
 
       - name: Upload Maven-local layout (org/jellyfin/media3)
         uses: actions/upload-artifact@v4

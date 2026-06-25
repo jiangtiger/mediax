@@ -1,0 +1,294 @@
+From e2e0f04adc373b285b8ca02bde70c0ade4e74c29 Mon Sep 17 00:00:00 2001
+From: Charming <charmingcheung000@gmail.com>
+Date: Thu, 18 Jun 2026 17:31:49 +0800
+Subject: [PATCH] feat(ts): support Dolby Vision in HLS/TS streams
+
+Route HEVC-based Dolby Vision elementary streams in MPEG-TS to the
+Dolby Vision decoder instead of decoding the HEVC base layer as plain
+HEVC, which produced a green/magenta tint for non-cross-compatible
+profiles (e.g. profile 5).
+---
+ .../media3/container/NalUnitUtil.java         |  9 +++
+ .../ts/DefaultTsPayloadReaderFactory.java     |  4 +-
+ .../media3/extractor/ts/H265Reader.java        | 63 ++++++++++++++++---
+ .../media3/extractor/ts/TsExtractor.java       | 17 ++++-
+ .../media3/extractor/ts/TsPayloadReader.java  | 25 ++++++++
+ 5 files changed, 109 insertions(+), 9 deletions(-)
+
+diff --git a/libraries/container/src/main/java/androidx/media3/container/NalUnitUtil.java b/libraries/container/src/main/java/androidx/media3/container/NalUnitUtil.java
+index e845bde811d..48f338d711a 100644
+--- a/libraries/container/src/main/java/androidx/media3/container/NalUnitUtil.java
++++ b/libraries/container/src/main/java/androidx/media3/container/NalUnitUtil.java
+@@ -135,6 +135,15 @@ public final class NalUnitUtil {
+   /** H.265 suffixed supplemental enhancement information (SUFFIX_SEI_NUT). */
+   public static final int H265_NAL_UNIT_TYPE_SUFFIX_SEI = 40;
+ 
++  /**
++   * H.265 unspecified NAL unit type carrying a Dolby Vision RPU (enhancement metadata) in
++   * profile 5/7/8 streams.
++   */
++  public static final int H265_NAL_UNIT_TYPE_DV_RPU = 62;
++
++  /** H.265 unspecified NAL unit type carrying a Dolby Vision enhancement layer. */
++  public static final int H265_NAL_UNIT_TYPE_DV_EL = 63;
++
+   /** H.265 unspecified NAL unit. */
+   public static final int H265_NAL_UNIT_TYPE_UNSPECIFIED = 48;
+ 
+diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/DefaultTsPayloadReaderFactory.java b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/DefaultTsPayloadReaderFactory.java
+index d2aae227d69..b2e1548deb9 100644
+--- a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/DefaultTsPayloadReaderFactory.java
++++ b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/DefaultTsPayloadReaderFactory.java
+@@ -206,7 +206,9 @@ public TsPayloadReader createPayloadReader(int streamType, EsInfo esInfo) {
+             isSet(FLAG_DETECT_ACCESS_UNITS),
+             MimeTypes.VIDEO_MP2T));
+       case TsExtractor.TS_STREAM_TYPE_H265:
+-        return new PesReader(new H265Reader(buildSeiReader(esInfo), MimeTypes.VIDEO_MP2T));
++        return new PesReader(
++            new H265Reader(
++                buildSeiReader(esInfo), MimeTypes.VIDEO_MP2T, esInfo.dolbyVisionConfig));
+       case TsExtractor.TS_STREAM_TYPE_SPLICE_INFO:
+         return isSet(FLAG_IGNORE_SPLICE_INFO_STREAM)
+             ? null
+diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/H265Reader.java b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/H265Reader.java
+index 38a81516212..3b7be57a080 100644
+--- a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/H265Reader.java
++++ b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/H265Reader.java
+@@ -27,6 +27,7 @@
+ import androidx.media3.common.util.ParsableByteArray;
+ import androidx.media3.common.util.UnstableApi;
+ import androidx.media3.common.util.Util;
++import androidx.media3.container.DolbyVisionConfig;
+ import androidx.media3.container.NalUnitUtil;
+ import androidx.media3.extractor.ExtractorOutput;
+ import androidx.media3.extractor.TrackOutput;
+@@ -42,6 +43,7 @@ public final class H265Reader implements ElementaryStreamReader {
+ 
+   private final SeiReader seiReader;
+   private final String containerMimeType;
++  @Nullable private final DolbyVisionConfig dolbyVisionConfig;
+ 
+   private @MonotonicNonNull String formatId;
+   private @MonotonicNonNull TrackOutput output;
+@@ -70,8 +72,22 @@ public final class H265Reader implements ElementaryStreamReader {
+    * @param containerMimeType The MIME type of the container holding the stream.
+    */
+   public H265Reader(SeiReader seiReader, String containerMimeType) {
++    this(seiReader, containerMimeType, /* dolbyVisionConfig= */ null);
++  }
++
++  /**
++   * @param seiReader An SEI reader for consuming closed caption channels.
++   * @param containerMimeType The MIME type of the container holding the stream.
++   * @param dolbyVisionConfig The Dolby Vision configuration signalled in the container, or {@code
++   *     null} if the stream is plain HEVC.
++   */
++  public H265Reader(
++      SeiReader seiReader,
++      String containerMimeType,
++      @Nullable DolbyVisionConfig dolbyVisionConfig) {
+     this.seiReader = seiReader;
+     this.containerMimeType = containerMimeType;
++    this.dolbyVisionConfig = dolbyVisionConfig;
+     prefixFlags = new boolean[3];
+     vps = new NalUnitTargetBuffer(NalUnitUtil.H265_NAL_UNIT_TYPE_VPS, 128);
+     sps = new NalUnitTargetBuffer(NalUnitUtil.H265_NAL_UNIT_TYPE_SPS, 128);
+@@ -214,7 +230,7 @@ private void endNalUnit(long position, int offset, int discardPadding, long pesT
+       sps.endNalUnit(discardPadding);
+       pps.endNalUnit(discardPadding);
+       if (vps.isCompleted() && sps.isCompleted() && pps.isCompleted()) {
+-        Format format = parseMediaFormat(formatId, vps, sps, pps, containerMimeType);
++        Format format = parseMediaFormat(formatId, vps, sps, pps, containerMimeType, dolbyVisionConfig);
+         output.format(format);
+         checkState(format.maxNumReorderSamples != Format.NO_VALUE);
+         seiReader.setReorderingQueueSize(format.maxNumReorderSamples);
+@@ -244,7 +260,8 @@ private static Format parseMediaFormat(
+       NalUnitTargetBuffer vps,
+       NalUnitTargetBuffer sps,
+       NalUnitTargetBuffer pps,
+-      String containerMimeType) {
++      String containerMimeType,
++      @Nullable DolbyVisionConfig dolbyVisionConfig) {
+     // Build codec-specific data.
+     byte[] csdData = new byte[vps.nalLength + sps.nalLength + pps.nalLength];
+     System.arraycopy(vps.nalData, 0, csdData, 0, vps.nalLength);
+@@ -267,10 +284,40 @@ private static Format parseMediaFormat(
+           spsData.profileTierLevel.constraintBytes,
+           spsData.profileTierLevel.generalLevelIdc);
+     }
++
++    String sampleMimeType = MimeTypes.VIDEO_H265;
++    @C.ColorSpace int colorSpace = spsData.colorSpace;
++    @C.ColorRange int colorRange = spsData.colorRange;
++    @C.ColorTransfer int colorTransfer = spsData.colorTransfer;
++    if (dolbyVisionConfig != null) {
++      sampleMimeType = MimeTypes.VIDEO_DOLBY_VISION;
++      codecs = dolbyVisionConfig.codecs;
++      if (dolbyVisionConfig.profile == 5) {
++        if (colorSpace == Format.NO_VALUE) {
++          colorSpace = C.COLOR_SPACE_BT2020;
++        }
++        if (colorTransfer == Format.NO_VALUE) {
++          colorTransfer = C.COLOR_TRANSFER_ST2084;
++        }
++        if (colorRange == Format.NO_VALUE) {
++          colorRange = C.COLOR_RANGE_LIMITED;
++        }
++      }
++    }
++
+     return new Format.Builder()
+         .setId(formatId)
+         .setContainerMimeType(containerMimeType)
+-        .setSampleMimeType(MimeTypes.VIDEO_H265)
++        .setSampleMimeType(sampleMimeType)
+         .setCodecs(codecs)
+         .setWidth(spsData.width)
+         .setHeight(spsData.height)
+@@ -278,9 +325,9 @@ private static Format parseMediaFormat(
+         .setDecodedHeight(spsData.decodedHeight)
+         .setColorInfo(
+             new ColorInfo.Builder()
+-                .setColorSpace(spsData.colorSpace)
+-                .setColorRange(spsData.colorRange)
+-                .setColorTransfer(spsData.colorTransfer)
++                .setColorSpace(colorSpace)
++                .setColorRange(colorRange)
++                .setColorTransfer(colorTransfer)
+                 .setLumaBitdepth(spsData.bitDepthLumaMinus8 + 8)
+                 .setChromaBitdepth(spsData.bitDepthChromaMinus8 + 8)
+                 .build())
+@@ -414,7 +461,9 @@ private static boolean isPrefixNalUnit(int nalUnitType) {
+   /** Returns whether a NAL unit type is one that occurs in the VLC body of a sample. */
+   private static boolean isVclBodyNalUnit(int nalUnitType) {
+     return nalUnitType < NalUnitUtil.H265_NAL_UNIT_TYPE_VPS
+-        || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_SUFFIX_SEI;
++        || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_SUFFIX_SEI
++        || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_DV_RPU
++        || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_DV_EL;
+   }
+ }
+ }
+diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsExtractor.java b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsExtractor.java
+index 4f27e9b47e5..51b95b2ac94 100644
+--- a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsExtractor.java
++++ b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsExtractor.java
+@@ -35,6 +35,7 @@
+ import androidx.media3.common.util.TimestampAdjuster;
+ import androidx.media3.common.util.UnstableApi;
+ import androidx.media3.common.util.Util;
++import androidx.media3.container.DolbyVisionConfig;
+ import androidx.media3.extractor.Extractor;
+ import androidx.media3.extractor.ExtractorInput;
+ import androidx.media3.extractor.ExtractorOutput;
+@@ -156,6 +157,7 @@ public static ExtractorsFactory newFactory(SubtitleParser.Factory subtitleParser
+   private static final long E_AC3_FORMAT_IDENTIFIER = 0x45414333;
+   private static final long AC4_FORMAT_IDENTIFIER = 0x41432d34;
+   private static final long HEVC_FORMAT_IDENTIFIER = 0x48455643;
++  private static final long DOVI_FORMAT_IDENTIFIER = 0x444f5649; // "DOVI"
+ 
+   private static final int BUFFER_SIZE = TS_PACKET_SIZE * 50;
+   private static final int SNIFF_TS_PACKET_COUNT = 5;
+@@ -690,6 +692,7 @@ private class PmtReader implements SectionPayloadReader {
+     private static final int TS_PMT_DESC_DTS = 0x7B;
+     private static final int TS_PMT_DESC_DVB_EXT = 0x7F;
+     private static final int TS_PMT_DESC_DVBSUBS = 0x59;
++    private static final int TS_PMT_DESC_DOVI = 0xB0;
+ 
+     private static final int TS_PMT_DESC_DVB_EXT_AC4 = 0x15;
+     private static final int TS_PMT_DESC_DVB_EXT_DTS_HD = 0x0E;
+@@ -856,6 +859,7 @@ private EsInfo readEsInfo(ParsableByteArray data, int length) {
+       String language = null;
+       @EsInfo.AudioType int audioType = AUDIO_TYPE_UNDEFINED;
+       List<DvbSubtitleInfo> dvbSubtitleInfos = null;
++      @Nullable DolbyVisionConfig dolbyVisionConfig = null;
+       while (data.getPosition() < descriptorsEndPosition) {
+         int descriptorTag = data.readUnsignedByte();
+         int descriptorLength = data.readUnsignedByte();
+@@ -874,7 +878,13 @@ private EsInfo readEsInfo(ParsableByteArray data, int length) {
+             streamType = TS_STREAM_TYPE_AC4;
+           } else if (formatIdentifier == HEVC_FORMAT_IDENTIFIER) {
+             streamType = TS_STREAM_TYPE_H265;
++          } else if (formatIdentifier == DOVI_FORMAT_IDENTIFIER) {
++            streamType = TS_STREAM_TYPE_H265;
+           }
++        } else if (descriptorTag == TS_PMT_DESC_DOVI) {
++          streamType = TS_STREAM_TYPE_H265;
++          dolbyVisionConfig = DolbyVisionConfig.parse(data);
+         } else if (descriptorTag == TS_PMT_DESC_AC3) {
+           streamType = TS_STREAM_TYPE_AC3;
+         } else if (descriptorTag == TS_PMT_DESC_EAC3) {
+@@ -920,7 +930,8 @@ private EsInfo readEsInfo(ParsableByteArray data, int length) {
+           language,
+           audioType,
+           dvbSubtitleInfos,
+-          Arrays.copyOfRange(data.getData(), descriptorsStartPosition, descriptorsEndPosition));
++          Arrays.copyOfRange(data.getData(), descriptorsStartPosition, descriptorsEndPosition),
++          dolbyVisionConfig);
+     }
+   }
+ }
+diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsPayloadReader.java b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsPayloadReader.java
+index 2b16a0e3006..1cddc250a39 100644
+--- a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsPayloadReader.java
++++ b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsPayloadReader.java
+@@ -26,6 +26,7 @@
+ import androidx.media3.common.util.ParsableByteArray;
+ import androidx.media3.common.util.TimestampAdjuster;
+ import androidx.media3.common.util.UnstableApi;
++import androidx.media3.container.DolbyVisionConfig;
+ import androidx.media3.extractor.ExtractorOutput;
+ import androidx.media3.extractor.TrackOutput;
+ import java.lang.annotation.Documented;
+@@ -111,6 +112,8 @@ final class EsInfo {
+     public final @AudioType int audioType;
+     public final List<DvbSubtitleInfo> dvbSubtitleInfos;
+     public final byte[] descriptorBytes;
++    /** The Dolby Vision configuration signalled in the PMT, or {@code null} if not present. */
++    @Nullable public final DolbyVisionConfig dolbyVisionConfig;
+ 
+     /**
+      * @param streamType The type of the stream as defined by the {@link TsExtractor}{@code
+@@ -119,13 +122,34 @@ final class EsInfo {
+      * @param audioType The audio type of the stream, as defined by ISO/IEC 13818-1, section 2.6.18.
+      * @param dvbSubtitleInfos Information about DVB subtitles associated to the stream.
+      * @param descriptorBytes The descriptor bytes associated to the stream.
++     * @deprecated Use {@link #EsInfo(int, String, int, List, byte[], DolbyVisionConfig)} instead.
+      */
++    @Deprecated
+     public EsInfo(
+         int streamType,
+         @Nullable String language,
+         @AudioType int audioType,
+         @Nullable List<DvbSubtitleInfo> dvbSubtitleInfos,
+         byte[] descriptorBytes) {
++      this(streamType, language, audioType, dvbSubtitleInfos, descriptorBytes, null);
++    }
++
++    /**
++     * @param streamType The type of the stream as defined by the {@link TsExtractor}{@code
++     *     .TS_STREAM_TYPE_*}.
++     * @param language The language of the stream, as defined by ISO/IEC 13818-1, section 2.6.18.
++     * @param audioType The audio type of the stream, as defined by ISO/IEC 13818-1, section 2.6.18.
++     * @param dvbSubtitleInfos Information about DVB subtitles associated to the stream.
++     * @param descriptorBytes The descriptor bytes associated to the stream.
++     * @param dolbyVisionConfig The Dolby Vision configuration signalled in the PMT, or {@code null}.
++     */
++    public EsInfo(
++        int streamType,
++        @Nullable String language,
++        @AudioType int audioType,
++        @Nullable List<DvbSubtitleInfo> dvbSubtitleInfos,
++        byte[] descriptorBytes,
++        @Nullable DolbyVisionConfig dolbyVisionConfig) {
+       this.streamType = streamType;
+       this.language = language;
+       this.audioType = audioType;
+@@ -134,6 +158,7 @@ public EsInfo(
+           ? Collections.emptyList()
+           : Collections.unmodifiableList(dvbSubtitleInfos);
+       this.descriptorBytes = descriptorBytes;
++      this.dolbyVisionConfig = dolbyVisionConfig;
+     }
+   }
+ 
