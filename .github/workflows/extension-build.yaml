@@ -77,6 +77,9 @@ jobs:
         run: bash scripts/apply-av3a-java-overlay.sh
 
       - name: Apply media extractor overlays (DV TS + Enhanced FLV)
+        env:
+          # vstv extractor 必须与 VSTV app 的 Media3 1.8.x 同基线编译（见 scripts/README-MEDIA-EXTRACTOR-OVERLAYS.md）
+          MEDIAX_MEDIA_REF: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref, '+vstv')) && '1.8.0' || '' }}
         run: bash scripts/apply-media-extractor-overlays.sh
 
       - name: Build ffmpeg (h264/hevc/vp9/av1/opus + Jellyfin audio; av3a 标签自动 ENABLE_AV3A=1)

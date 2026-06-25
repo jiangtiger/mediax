@@ -6,30 +6,27 @@
 
 | Overlay | 来源 | 作用 |
 |---------|------|------|
-| **杜比视界 TS** | [androidx/media#3280](https://github.com/androidx/media/pull/3280)（已 port 到 media 子模块 `7ce3aa2` / Media3 1.10.0） | HLS/MPEG-TS 内 DV 流正确输出 `video/dolby-vision`，避免 Profile 5 绿/洋红偏色 |
+| **杜比视界 TS** | [androidx/media#3280](https://github.com/androidx/media/pull/3280)（overlay 源来自 1.10 port，**须在 media 子模块 `1.8.0` 上应用**） | HLS/MPEG-TS 内 DV 流正确输出 `video/dolby-vision`，避免 Profile 5 绿/洋红偏色 |
 | **Enhanced FLV HEVC** | 社区实现（codec type 12 + `HevcConfig`） | FLV 容器内 H.265 解复用 |
 
 ## 本地应用 overlay
 
 ```bash
 git submodule update --init --recursive
-bash scripts/apply-media-extractor-overlays.sh
-```
-
-## 发布
-
-```bash
-bash scripts/apply-media-extractor-overlays.sh
-bash ./gradlew :media3-extractor-vstv:publishToMavenLocal -Pjellyfin.version=1.8.0+vstv1
+MEDIAX_MEDIA_REF=1.8.0 bash scripts/apply-media-extractor-overlays.sh
+bash ./gradlew :media3-extractor-vstv:publishToMavenLocal -Pjellyfin.version=1.8.0+vstv2
 # 或打 tag 后由 CI 发布到 GitHub Packages
-git tag 1.8.0+vstv1 && git push origin 1.8.0+vstv1
+git tag 1.8.0+vstv2 && git push origin 1.8.0+vstv2
 ```
+
+> **勿在 Media3 1.10 子模块上发布 `1.8.0+vstv*`**：artifact 版本号虽写 1.8.0，但若基于 1.10 编译，与 VSTV 内 ExoPlayer 1.8.0 混用会在播放时 `NoSuchMethodError`（`Metadata.getMatchingEntries`）。  
+> FFmpeg 扩展同理：见 `scripts/README-DEBIAN13.md`——POM 不强行抬升下游 Media3，由 app 自行锁定 **1.8.x**。
 
 ## VSTV 引用
 
 `mytv-android` 已配置：
 
-- `org.jellyfin.media3:media3-extractor:1.8.0+vstv1`
+- `org.jellyfin.media3:media3-extractor:1.8.0+vstv2`（基于 Media3 **1.8.0** 子模块 + overlay；**勿用 `+vstv1`**）
 - 排除官方 `androidx.media3:media3-extractor`
 
 **首次集成前**需先发布上述 artifact，否则 Gradle 解析会失败。
