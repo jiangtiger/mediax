@@ -20,10 +20,18 @@ project(modulePrefix + "lib-exoplayer").projectDir = File(mediaRootDir, "librari
 
 include(modulePrefix + "lib-exoplayer-dash")
 project(modulePrefix + "lib-exoplayer-dash").projectDir = File(mediaRootDir, "libraries/exoplayer_dash")
-include(modulePrefix + "lib-inspector")
-project(modulePrefix + "lib-inspector").projectDir = File(mediaRootDir, "libraries/inspector")
-include(modulePrefix + "lib-inspector-frame")
-project(modulePrefix + "lib-inspector-frame").projectDir = File(mediaRootDir, "libraries/inspector_frame")
+
+// media3-inspector / inspector_frame 为 Media3 1.9+ 新增；pin 子模块到 1.8.0 时不存在。
+val inspectorDir = File(mediaRootDir, "libraries/inspector")
+val inspectorFrameDir = File(mediaRootDir, "libraries/inspector_frame")
+if (inspectorDir.isDirectory) {
+    include(modulePrefix + "lib-inspector")
+    project(modulePrefix + "lib-inspector").projectDir = inspectorDir
+}
+if (inspectorFrameDir.isDirectory) {
+    include(modulePrefix + "lib-inspector-frame")
+    project(modulePrefix + "lib-inspector-frame").projectDir = inspectorFrameDir
+}
 
 include(modulePrefix + "lib-database")
 project(modulePrefix + "lib-database").projectDir = File(mediaRootDir, "libraries/database")
