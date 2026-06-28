@@ -51,6 +51,10 @@ jobs:
       - name: Install correct NDK and CMake
         run: sudo ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --install "ndk;${NDK_VER}" "cmake;${CMAKE_VER}"
 
+      # AV3A 预编译库无 soname，需 patchelf 补 DT_SONAME，否则 libffmpegJNI.so 会把构建机绝对路径写进 NEEDED。
+      - name: Install patchelf
+        run: sudo apt-get update && sudo apt-get install -y patchelf
+
       - name: Patch upstream minCompileSdk to 35 for published AAR metadata
         run: |
           python3 - <<'PY'

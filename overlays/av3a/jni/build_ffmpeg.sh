@@ -31,6 +31,11 @@ copy_av3a_prebuilt() {
       exit 1
     fi
     cp -f "${dep_dir}/${lib}" "${out_dir}/"
+    # 预编译库本身没有 DT_SONAME。若直接以全路径链入 libffmpegJNI.so，
+    # 链接器会把构建机的绝对路径（/home/runner/.../libxxx.so）写进 DT_NEEDED，
+    # 设备上该路径不存在 → dlopen 整体失败（CANNOT LINK ... library not found）→ 有画无声。
+    # 显式补一个 basename soname，使后续链接记录的 DT_NEEDED 为文件名，运行时按名解析。
+    patchelf --set-soname "${lib}" "${out_dir}/${lib}"
   done
 }
 
