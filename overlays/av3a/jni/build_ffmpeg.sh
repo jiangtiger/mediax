@@ -37,6 +37,25 @@ copy_av3a_prebuilt() {
     # 显式补一个 basename soname，使后续链接记录的 DT_NEEDED 为文件名，运行时按名解析。
     patchelf --set-soname "${lib}" "${out_dir}/${lib}"
   done
+  # av3a 预编译库（libav3a_binaural_render.so / libAVS3AudioDec.so）依赖 NDK 的
+  # C++ 共享运行时 libc++_shared.so。libffmpegJNI 默认以 c++_static 链接，不会把它打进包，
+  # 缺失时设备上 dlopen 报 "library libc++_shared.so not found" → 仍然有画无声。
+  # 从 NDK sysroot 复制到 android-libs，使其随 jniLibs 一并打进 AAR/APK。
+  local stl_triple=""
+  case "${out_abi}" in
+    arm64-v8a)   stl_triple="aarch64-linux-android" ;;
+    armeabi-v7a) stl_triple="arm-linux-androideabi" ;;
+  esac
+  if [[ -n "${stl_triple}" ]]; then
+    local stl_src="${NDK_PATH}/toolchains/llvm/prebuilt/${HOST_PLATFORM}/sysroot/usr/lib/${stl_triple}/libc++_shared.so"
+    if [[ -f "${stl_src}" ]]; then
+      cp -f "${stl_src}" "${out_dir}/"
+      echo "copied libc++_shared.so for ${out_abi} from ${stl_src}"
+    else
+      echo "ERROR: libc++_shared.so not found at ${stl_src}"
+      exit 1
+    fi
+  fi
 }
 
 ARM_AV3A_OPTIONS="
