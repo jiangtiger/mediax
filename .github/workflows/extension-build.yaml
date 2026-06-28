@@ -80,7 +80,10 @@ jobs:
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref, 'av3a')
         run: bash scripts/apply-av3a-java-overlay.sh
 
+      # av3a 包仅发布 ffmpeg-decoder，不含 extractor；跳过 DV/FLV overlay，
+      # 避免 overlay 后的 NalUnitUtil 与未重置到 1.8.0 的子模块 VvcConfig 不一致导致编译失败。
       - name: Apply media extractor overlays (DV TS + Enhanced FLV)
+        if: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref, 'av3a')) }}
         env:
           # vstv extractor 必须与 VSTV app 的 Media3 1.8.x 同基线编译（见 scripts/README-MEDIA-EXTRACTOR-OVERLAYS.md）
           MEDIAX_MEDIA_REF: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref, '+vstv')) && '1.8.0' || '' }}
@@ -101,6 +104,8 @@ jobs:
             VER="${GITHUB_REF#refs/tags/}"
             if [[ "$VER" == *"+vstv"* ]]; then
               bash ./gradlew :media3-extractor-vstv:publishToMavenLocal -Pjellyfin.version="$VER"
+            elif [[ "$VER" == *"av3a"* ]]; then
+              bash ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal -Pjellyfin.version="$VER"
             else
               bash ./gradlew :media3-ffmpeg-decoder:publishToMavenLocal :media3-extractor-vstv:publishToMavenLocal -Pjellyfin.version="$VER"
             fi
@@ -118,6 +123,8 @@ jobs:
           VER="${GITHUB_REF#refs/tags/}"
           if [[ "$VER" == *"+vstv"* ]]; then
             bash ./gradlew :media3-extractor-vstv:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
+          elif [[ "$VER" == *"av3a"* ]]; then
+            bash ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
           else
             bash ./gradlew :media3-ffmpeg-decoder:publishDefaultPublicationToGitHubPackagesRepository :media3-extractor-vstv:publishDefaultPublicationToGitHubPackagesRepository --no-daemon -Pjellyfin.version="$VER"
           fi
