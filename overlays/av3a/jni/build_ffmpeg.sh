@@ -127,6 +127,10 @@ build_arm_av3a() {
   local -a extra_configure=("$@")
   local options="${ARM_AV3A_OPTIONS}"
   for decoder in "${ENABLED_DECODERS[@]}"; do
+    # 补丁版 FFmpeg 6.1 的 av1 解码器引用 ff_av1_framerate，但共享库未导出该符号，
+    # 运行时 libffmpegJNI 加载会因 "cannot locate symbol ff_av1_framerate" 整体失败
+    # → 菁彩声仍有画无声。与 x86 一致跳过 av1 软解（设备 AV1 走硬解，不影响）。
+    [[ "${decoder}" == "av1" ]] && continue
     options="${options} --enable-decoder=${decoder}"
   done
   cd "${FFMPEG_SRC}"
