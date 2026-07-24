@@ -501,7 +501,8 @@ static int transformVideoError(int errorNumber) {
 static void setSwsColorspace(SwsContext* sws) {
   if (!sws) return;
   // MPEG2 SD content uses BT.601 with limited (MPEG) range.
-  const int* coeffs = sws_getCoefficients(SWS_CS_BT601);
+  // SWS_CS_ITU601 (=5) is the standard FFmpeg constant for BT.601 coefficients.
+  const int* coeffs = sws_getCoefficients(SWS_CS_ITU601);
   sws_setColorspaceDetails(sws, coeffs, /* srcRange= */ 0,
                            coeffs, /* dstRange= */ 0,
                            /* brightness= */ 0,
