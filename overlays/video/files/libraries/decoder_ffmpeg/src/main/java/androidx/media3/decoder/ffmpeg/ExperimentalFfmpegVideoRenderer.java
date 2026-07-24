@@ -86,16 +86,24 @@ public final class ExperimentalFfmpegVideoRenderer extends DecoderVideoRenderer 
     @Nullable String mimeType = format.sampleMimeType;
     if (!FfmpegLibrary.isAvailable() || mimeType == null || !MimeTypes.isVideo(mimeType)) {
       return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE);
-    } else if (!FfmpegLibrary.supportsFormat(mimeType)) {
-      return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
-    } else if (format.cryptoType != C.CRYPTO_TYPE_NONE) {
-      return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_DRM);
-    } else {
-      return RendererCapabilities.create(
-          C.FORMAT_HANDLED,
-          RendererCapabilities.ADAPTIVE_NOT_SEAMLESS,
-          RendererCapabilities.TUNNELING_NOT_SUPPORTED);
     }
+    // Only handle MPEG2 video via FFmpeg software decoder.
+    // Let MediaCodec handle H264/HEVC/VP9/AV1 — devices have hardware decoders
+    // for those, and the FFmpeg video renderer's native implementation is only
+    // validated for MPEG2.
+    if (!MimeTypes.VIDEO_MPEG2.equals(mimeType)) {
+      return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE);
+    }
+    if (!FfmpegLibrary.supportsFormat(mimeType)) {
+      return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
+    }
+    if (format.cryptoType != C.CRYPTO_TYPE_NONE) {
+      return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_DRM);
+    }
+    return RendererCapabilities.create(
+        C.FORMAT_HANDLED,
+        RendererCapabilities.ADAPTIVE_NOT_SEAMLESS,
+        RendererCapabilities.TUNNELING_NOT_SUPPORTED);
   }
 
   @Override
@@ -140,14 +148,12 @@ public final class ExperimentalFfmpegVideoRenderer extends DecoderVideoRenderer 
   protected void renderOutputBufferToSurface(
       VideoDecoderOutputBuffer outputBuffer, Surface surface) throws FfmpegDecoderException {
     TraceUtil.beginSection("renderFfmpegVideoToSurface");
-    long nativeContext = outputBuffer.decoderPrivate;
-    if (nativeContext == 0) {
-      throw new FfmpegDecoderException("No native context in output buffer for surface rendering.");
+    if (decoder == null) {
+      throw new FfmpegDecoderException(
+          "Failed to render output buffer to surface: decoder is not initialized.");
     }
-    int result = ExperimentalFfmpegVideoDecoder.ffmpegVideoRenderFrame(nativeContext, surface);
-    if (result < 0) {
-      throw new FfmpegDecoderException("Failed to render video frame to surface.");
-    }
+    decoder.renderToSurface(outputBuffer, surface);
+    outputBuffer.release();
     TraceUtil.endSection();
   }
 

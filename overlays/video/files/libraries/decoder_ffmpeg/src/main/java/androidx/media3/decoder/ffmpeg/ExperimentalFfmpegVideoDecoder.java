@@ -119,51 +119,60 @@ import java.nio.ByteBuffer;
     long pts = inputBuffer.timeUs;
 
     // Send packet to decoder
-    int result =
+    int sendResult =
         ffmpegVideoSendPacket(nativeContext, inputData, inputSize, pts);
-    if (result == VIDEO_DECODER_ERROR_OTHER) {
+    if (sendResult == VIDEO_DECODER_ERROR_OTHER) {
       return new FfmpegDecoderException("Error sending packet to video decoder.");
-    } else if (result == VIDEO_DECODER_ERROR_INVALID_DATA) {
-      outputBuffer.shouldBeSkipped = true;
-      return null;
-    } else if (result == AVERROR_EAGAIN) {
-      // Decoder needs to be drained before more input can be accepted.
-      // Not an error - just skip this input for now.
+    } else if (sendResult == VIDEO_DECODER_ERROR_INVALID_DATA) {
       outputBuffer.shouldBeSkipped = true;
       return null;
     }
+    // If sendResult == AVERROR_EAGAIN, the decoder's internal buffer is full.
+    // We still try to receive a frame below to drain the decoder.
+    // If sendResult == 0, the packet was accepted; we try to receive a frame.
 
     // Try to receive a decoded frame
-    result = ffmpegVideoReceiveFrame(nativeContext);
-    if (result == AVERROR_EAGAIN) {
-      // No frame ready yet
+    int recvResult = ffmpegVideoReceiveFrame(nativeContext);
+    if (recvResult == AVERROR_EAGAIN) {
+      // No frame ready yet — skip this output
       outputBuffer.shouldBeSkipped = true;
       return null;
-    } else if (result < 0) {
+    } else if (recvResult < 0) {
       outputBuffer.shouldBeSkipped = true;
       return null;
     }
 
-    // We have a decoded frame
+    // We have a decoded frame — get per-frame handle (av_frame_ref)
+    long frameHandle = ffmpegVideoGetFrameHandle(nativeContext);
+    if (frameHandle == 0) {
+      outputBuffer.shouldBeSkipped = true;
+      return null;
+    }
+
+    // Get frame metadata
     int decodedWidth = ffmpegVideoGetWidth(nativeContext);
     int decodedHeight = ffmpegVideoGetHeight(nativeContext);
     long framePts = ffmpegVideoGetPts(nativeContext);
+    long outputPts = framePts >= 0 ? framePts : pts;
 
     if (outputMode == C.VIDEO_OUTPUT_MODE_SURFACE_YUV) {
-      // Surface mode: store decoder context pointer for later rendering
+      // Surface mode: store per-frame handle for later rendering.
+      // Each output buffer gets its own AVFrame reference, so frames are
+      // not overwritten by subsequent decode() calls.
       outputBuffer.mode = C.VIDEO_OUTPUT_MODE_SURFACE_YUV;
-      outputBuffer.decoderPrivate = nativeContext;
+      outputBuffer.decoderPrivate = frameHandle;
+      outputBuffer.width = decodedWidth;
+      outputBuffer.height = decodedHeight;
+      outputBuffer.timeUs = outputPts;
+      outputBuffer.format = inputBuffer.format;
     } else {
       // YUV buffer mode: copy frame data to output buffer
-      // Calculate buffer sizes
       int ySize = decodedWidth * decodedHeight;
       int uvSize = (decodedWidth / 2) * (decodedHeight / 2);
       int totalSize = ySize + 2 * uvSize;
 
-      // Set timestamp on output buffer (media3 1.8.0: init returns void, not ByteBuffer)
-      outputBuffer.init(framePts >= 0 ? framePts : pts, 0, null);
+      outputBuffer.init(outputPts, 0, null);
 
-      // Allocate buffer for YUV data
       ByteBuffer outputData = ByteBuffer.allocateDirect(totalSize);
       outputBuffer.data = outputData;
 
@@ -181,6 +190,7 @@ import java.nio.ByteBuffer;
       int copyResult = ffmpegVideoCopyFrameData(nativeContext, yPlane, uPlane, vPlane);
       if (copyResult < 0) {
         outputBuffer.shouldBeSkipped = true;
+        ffmpegVideoReleaseFrame(frameHandle);
         return null;
       }
 
@@ -193,17 +203,42 @@ import java.nio.ByteBuffer;
       outputBuffer.yuvStrides[2] = decodedWidth / 2;
       outputBuffer.colorspace = VideoDecoderOutputBuffer.COLORSPACE_BT709;
 
-      // Set up YUV planes in the output buffer
       outputBuffer.yuvPlanes = new ByteBuffer[3];
       outputBuffer.yuvPlanes[0] = yPlane;
       outputBuffer.yuvPlanes[1] = uPlane;
       outputBuffer.yuvPlanes[2] = vPlane;
       outputBuffer.yStride = decodedWidth;
       outputBuffer.uvStride = decodedWidth / 2;
+
+      // Release the per-frame handle since we copied the data
+      ffmpegVideoReleaseFrame(frameHandle);
     }
 
-    outputBuffer.timeUs = framePts >= 0 ? framePts : pts;
+    outputBuffer.timeUs = outputPts;
     return null;
+  }
+
+  /** Renders the outputBuffer to the surface. Used with SURFACE_YUV mode only. */
+  public void renderToSurface(VideoDecoderOutputBuffer outputBuffer, Surface surface)
+      throws FfmpegDecoderException {
+    long frameHandle = outputBuffer.decoderPrivate;
+    if (frameHandle == 0) {
+      throw new FfmpegDecoderException("No frame handle in output buffer for surface rendering.");
+    }
+    int result = ffmpegVideoRenderFrame(nativeContext, frameHandle, surface);
+    if (result < 0) {
+      throw new FfmpegDecoderException("Failed to render video frame to surface.");
+    }
+  }
+
+  @Override
+  protected void releaseOutputBuffer(VideoDecoderOutputBuffer outputBuffer) {
+    // Release per-frame AVFrame reference if in SURFACE_YUV mode
+    if (outputBuffer.decoderPrivate != 0) {
+      ffmpegVideoReleaseFrame(outputBuffer.decoderPrivate);
+      outputBuffer.decoderPrivate = 0;
+    }
+    super.releaseOutputBuffer(outputBuffer);
   }
 
   @Override
@@ -224,7 +259,6 @@ import java.nio.ByteBuffer;
   }
 
   // Native methods
-  // ffmpegVideoRenderFrame is package-private so ExperimentalFfmpegVideoRenderer can call it.
 
   private native long ffmpegVideoInitialize(
       String codecName,
@@ -241,7 +275,15 @@ import java.nio.ByteBuffer;
 
   private native int ffmpegVideoReceiveFrame(long context);
 
-  /* package */ static native int ffmpegVideoRenderFrame(long context, Surface surface);
+  /** Creates an AVFrame reference for the current decoded frame. */
+  private native long ffmpegVideoGetFrameHandle(long context);
+
+  /** Renders a per-frame AVFrame to a Surface. */
+  /* package */ static native int ffmpegVideoRenderFrame(
+      long context, long frameHandle, Surface surface);
+
+  /** Releases a per-frame AVFrame reference. */
+  /* package */ static native void ffmpegVideoReleaseFrame(long frameHandle);
 
   private native int ffmpegVideoGetWidth(long context);
 

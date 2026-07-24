@@ -486,7 +486,7 @@ void releaseContext(AVCodecContext* context) {
 }
 
 // ============================================================================
-// Video decoder JNI functions (NEW - added for MPEG2 video support)
+// Video decoder JNI functions
 // ============================================================================
 
 /**
@@ -497,22 +497,26 @@ static int transformVideoError(int errorNumber) {
                                             : VIDEO_DECODER_ERROR_OTHER;
 }
 
+// ---- Helper: set proper BT601 colorspace on swscale context ----
+static void setSwsColorspace(SwsContext* sws) {
+  if (!sws) return;
+  // MPEG2 SD content uses BT.601 with limited (MPEG) range.
+  const int* coeffs = sws_getCoefficients(SWS_CS_BT601);
+  sws_setColorspaceDetails(sws, coeffs, /* srcRange= */ 0,
+                           coeffs, /* dstRange= */ 0,
+                           /* brightness= */ 0,
+                           /* contrast= */ 1 << 16,
+                           /* saturation= */ 1 << 16);
+}
+
 /**
  * Initializes a new video decoder context.
- *
- * @param codecName  FFmpeg codec name (e.g. "mpeg2video")
- * @param extraData  Codec-specific initialization data (may be NULL)
- * @param threads    Number of decoding threads to use
- * @param width      Video width hint (0 if unknown)
- * @param height     Video height hint (0 if unknown)
- * @return           Opaque native context pointer, or 0 on failure
  */
 VIDEO_DECODER_FUNC(jlong, ffmpegVideoInitialize, jstring codecName,
                    jbyteArray extraData, jint threads, jint width, jint height) {
   const AVCodec* codec = getCodecByName(env, codecName);
   if (!codec) {
-    LOGE("Video codec '%s' not found.", 
-         codecName ? env->GetStringUTFChars(codecName, NULL) : "null");
+    LOGE("Video codec not found.");
     return 0L;
   }
 
@@ -523,12 +527,8 @@ VIDEO_DECODER_FUNC(jlong, ffmpegVideoInitialize, jstring codecName,
   }
 
   context->thread_count = threads;
-  if (width > 0) {
-    context->width = width;
-  }
-  if (height > 0) {
-    context->height = height;
-  }
+  if (width > 0) context->width = width;
+  if (height > 0) context->height = height;
 
   if (extraData) {
     jsize size = env->GetArrayLength(extraData);
@@ -544,7 +544,6 @@ VIDEO_DECODER_FUNC(jlong, ffmpegVideoInitialize, jstring codecName,
   }
 
   context->err_recognition = AV_EF_IGNORE_ERR;
-
   int result = avcodec_open2(context, codec, NULL);
   if (result < 0) {
     logError("avcodec_open2 (video)", result);
@@ -568,12 +567,8 @@ VIDEO_DECODER_FUNC(jlong, ffmpegVideoInitialize, jstring codecName,
 
 /**
  * Sends a compressed video packet to the decoder.
- *
- * @param context  Native context pointer
- * @param data     Direct ByteBuffer containing compressed data
- * @param size     Number of bytes in the buffer
- * @param pts      Presentation timestamp in microseconds
- * @return         0 on success, negative error code on failure
+ * Returns: 0 on success, AVERROR(EAGAIN) if decoder buffer full,
+ *          negative error on failure.
  */
 VIDEO_DECODER_FUNC(jint, ffmpegVideoSendPacket, jlong context, jobject data,
                    jint size, jlong pts) {
@@ -604,27 +599,22 @@ VIDEO_DECODER_FUNC(jint, ffmpegVideoSendPacket, jlong context, jobject data,
 
   if (result < 0) {
     if (result == AVERROR(EAGAIN)) {
-      // Decoder output needs to be drained first. This is not a fatal error.
-      LOGD("avcodec_send_packet returned EAGAIN.");
+      // Decoder buffer full — caller should call ffmpegVideoReceiveFrame to drain.
       return result;
     }
     if (result == AVERROR_EOF) {
-      LOGD("avcodec_send_packet returned EOF.");
       return 0;
     }
     logError("avcodec_send_packet (video)", result);
     return transformVideoError(result);
   }
-
   return 0;
 }
 
 /**
- * Attempts to receive a decoded video frame from the decoder.
- *
- * @param context  Native context pointer
- * @return         0 if a frame was received, AVERROR(EAGAIN) if no output
- *                 available, negative error code on failure
+ * Receives a decoded frame into the context's currentFrame.
+ * Returns: 0 on success, AVERROR(EAGAIN) if no frame available,
+ *          negative on error.
  */
 VIDEO_DECODER_FUNC(jint, ffmpegVideoReceiveFrame, jlong context) {
   JniContext* ctx = (JniContext*)context;
@@ -633,43 +623,74 @@ VIDEO_DECODER_FUNC(jint, ffmpegVideoReceiveFrame, jlong context) {
     return VIDEO_DECODER_ERROR_OTHER;
   }
 
-  // Unref previous frame if any
   av_frame_unref(ctx->currentFrame);
-
   int result = avcodec_receive_frame(ctx->codecContext, ctx->currentFrame);
   if (result < 0) {
-    if (result == AVERROR(EAGAIN)) {
-      return result;
-    }
-    if (result == AVERROR_EOF) {
-      LOGD("Video decoder reached EOF.");
-      return result;
-    }
+    if (result == AVERROR(EAGAIN)) return result;
+    if (result == AVERROR_EOF) return result;
     logError("avcodec_receive_frame (video)", result);
     return transformVideoError(result);
   }
-
   return 0;
 }
 
 /**
- * Renders the current decoded frame to an Android Surface using swscale +
- * manual YUV plane copying (no libyuv dependency).
+ * Creates a per-buffer AVFrame reference (av_frame_ref) from the current
+ * decoded frame. The caller stores this in outputBuffer.decoderPrivate and
+ * must free it with ffmpegVideoReleaseFrame when done.
  *
- * @param context  Native context pointer
- * @param surface  Android Surface object
- * @return         0 on success, negative error code on failure
+ * This is the key fix for the "only first frame" bug: each output buffer
+ * gets its own AVFrame reference, so frames are not overwritten by
+ * subsequent decode() calls while waiting to be rendered.
+ *
+ * Returns: positive jlong pointer on success, 0 on failure.
+ */
+VIDEO_DECODER_FUNC(jlong, ffmpegVideoGetFrameHandle, jlong context) {
+  JniContext* ctx = (JniContext*)context;
+  if (!ctx || !ctx->codecContext || !ctx->currentFrame->buf[0]) {
+    return 0;
+  }
+  AVFrame* frameRef = av_frame_alloc();
+  if (!frameRef) return 0;
+  if (av_frame_ref(frameRef, ctx->currentFrame) < 0) {
+    av_frame_free(&frameRef);
+    return 0;
+  }
+  return (jlong)frameRef;
+}
+
+/**
+ * Renders a per-frame AVFrame to an Android Surface.
+ *
+ * Key optimizations:
+ * - If source is already YUV420P (typical for MPEG2), skip sws_scale
+ *   entirely and copy planes directly to ANativeWindow.
+ * - If conversion is needed, use sws_scale with BT.601 colorspace.
+ * - Avoid per-frame allocation by reusing sws context.
+ *
+ * @param context     Decoder context (for sws context reuse)
+ * @param frameHandle Per-frame AVFrame pointer from ffmpegVideoGetFrameHandle
+ * @param surface     Android Surface object
+ * @return            0 on success, negative on error
  */
 VIDEO_DECODER_FUNC(jint, ffmpegVideoRenderFrame, jlong context,
-                   jobject surface) {
+                   jlong frameHandle, jobject surface) {
   JniContext* ctx = (JniContext*)context;
-  if (!ctx || !ctx->codecContext) {
-    LOGE("Invalid video decoder context.");
+  AVFrame* frame = (AVFrame*)frameHandle;
+  if (!ctx || !ctx->codecContext || !frame) {
+    LOGE("Invalid context or frame handle in ffmpegVideoRenderFrame.");
+    return VIDEO_DECODER_ERROR_OTHER;
+  }
+  if (!surface) {
+    LOGE("Surface is null.");
     return VIDEO_DECODER_ERROR_OTHER;
   }
 
-  if (!surface) {
-    LOGE("Surface is null.");
+  // Use per-frame dimensions if available, fall back to codec context
+  int width = frame->width > 0 ? frame->width : ctx->codecContext->width;
+  int height = frame->height > 0 ? frame->height : ctx->codecContext->height;
+  if (width <= 0 || height <= 0) {
+    LOGE("Invalid frame dimensions: %dx%d", width, height);
     return VIDEO_DECODER_ERROR_OTHER;
   }
 
@@ -679,163 +700,171 @@ VIDEO_DECODER_FUNC(jint, ffmpegVideoRenderFrame, jlong context,
     return VIDEO_DECODER_ERROR_OTHER;
   }
 
-  int width = ctx->codecContext->width;
-  int height = ctx->codecContext->height;
+  // Determine if we need sws_scale (source is not YUV420P)
+  bool needScale = (frame->format != AV_PIX_FMT_YUV420P);
 
-  if (width <= 0 || height <= 0) {
-    LOGE("Invalid frame dimensions: %dx%d", width, height);
-    ANativeWindow_release(window);
-    return VIDEO_DECODER_ERROR_OTHER;
-  }
+  // Source planes — either directly from the frame or from a converted buffer
+  const uint8_t* srcY;
+  const uint8_t* srcU;
+  const uint8_t* srcV;
+  int srcStrideY;
+  int srcStrideU;
+  int srcStrideV;
 
-  // Initialize swscale context for YUV420P output with proper stride alignment
-  if (!ctx->swsContext) {
-    ctx->swsContext = sws_getContext(
-        width, height, ctx->codecContext->pix_fmt,
-        width, height, AV_PIX_FMT_YUV420P,
-        SWS_BILINEAR, NULL, NULL, NULL);
+  // For sws_scale path
+  AVFrame* scaleFrame = NULL;
+  uint8_t* scaleBuffer = NULL;
+
+  if (needScale) {
+    // Create or reuse swscale context
     if (!ctx->swsContext) {
-      LOGE("Failed to create swscale context.");
+      ctx->swsContext = sws_getContext(
+          width, height, (AVPixelFormat)frame->format,
+          width, height, AV_PIX_FMT_YUV420P,
+          SWS_BILINEAR, NULL, NULL, NULL);
+      if (!ctx->swsContext) {
+        LOGE("Failed to create swscale context.");
+        ANativeWindow_release(window);
+        return VIDEO_DECODER_ERROR_OTHER;
+      }
+      setSwsColorspace(ctx->swsContext);
+    }
+
+    scaleFrame = av_frame_alloc();
+    if (!scaleFrame) {
       ANativeWindow_release(window);
       return VIDEO_DECODER_ERROR_OTHER;
     }
+    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, width, height, 1);
+    scaleBuffer = (uint8_t*)av_malloc(numBytes);
+    if (!scaleBuffer) {
+      av_frame_free(&scaleFrame);
+      ANativeWindow_release(window);
+      return VIDEO_DECODER_ERROR_OTHER;
+    }
+    av_image_fill_arrays(scaleFrame->data, scaleFrame->linesize, scaleBuffer,
+                         AV_PIX_FMT_YUV420P, width, height, 1);
+
+    int swsResult = sws_scale(ctx->swsContext,
+                              (const uint8_t* const*)frame->data,
+                              frame->linesize, 0, height,
+                              scaleFrame->data, scaleFrame->linesize);
+    if (swsResult < 0) {
+      LOGE("sws_scale failed: %d", swsResult);
+      av_free(scaleBuffer);
+      av_frame_free(&scaleFrame);
+      ANativeWindow_release(window);
+      return VIDEO_DECODER_ERROR_OTHER;
+    }
+    srcY = scaleFrame->data[0];
+    srcU = scaleFrame->data[1];
+    srcV = scaleFrame->data[2];
+    srcStrideY = scaleFrame->linesize[0];
+    srcStrideU = scaleFrame->linesize[1];
+    srcStrideV = scaleFrame->linesize[2];
+  } else {
+    // Source is already YUV420P — copy directly from the frame
+    srcY = frame->data[0];
+    srcU = frame->data[1];
+    srcV = frame->data[2];
+    srcStrideY = frame->linesize[0];
+    srcStrideU = frame->linesize[1];
+    srcStrideV = frame->linesize[2];
   }
 
-  // Allocate aligned intermediate buffers for scaled YUV420P output
-  AVFrame* scaleFrame = av_frame_alloc();
-  if (!scaleFrame) {
-    LOGE("Failed to allocate scale frame.");
-    ANativeWindow_release(window);
-    return VIDEO_DECODER_ERROR_OTHER;
-  }
-
-  int numBytes = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, width, height, 1);
-  uint8_t* scaleBuffer = (uint8_t*)av_malloc(numBytes);
-  if (!scaleBuffer) {
-    LOGE("Failed to allocate scale buffer.");
-    av_frame_free(&scaleFrame);
-    ANativeWindow_release(window);
-    return VIDEO_DECODER_ERROR_OTHER;
-  }
-
-  av_image_fill_arrays(scaleFrame->data, scaleFrame->linesize, scaleBuffer,
-                       AV_PIX_FMT_YUV420P, width, height, 1);
-
-  // Scale the decoded frame to YUV420P with proper stride alignment
-  int swsResult = sws_scale(ctx->swsContext,
-                            (const uint8_t* const*)ctx->currentFrame->data,
-                            ctx->currentFrame->linesize,
-                            0, height,
-                            scaleFrame->data, scaleFrame->linesize);
-  if (swsResult < 0) {
-    LOGE("sws_scale failed: %d", swsResult);
-    av_free(scaleBuffer);
-    av_frame_free(&scaleFrame);
-    ANativeWindow_release(window);
-    return VIDEO_DECODER_ERROR_OTHER;
-  }
-
-  // Set buffer geometry to YV12 (YUV420P with U/V planes swapped)
-  // YV12 = WINDOW_FORMAT_YV12 (0x32315659)
-  int format = 0x32315659; // YV12
-  ANativeWindow_setBuffersGeometry(window, width, height, format);
+  // Set buffer geometry to YV12
+  ANativeWindow_setBuffersGeometry(window, width, height,
+                                   0x32315659 /* WINDOW_FORMAT_YV12 */);
 
   ANativeWindow_Buffer winBuf;
   int lockResult = ANativeWindow_lock(window, &winBuf, NULL);
   if (lockResult != 0) {
     LOGE("ANativeWindow_lock failed: %d", lockResult);
-    av_free(scaleBuffer);
-    av_frame_free(&scaleFrame);
+    if (scaleBuffer) av_free(scaleBuffer);
+    if (scaleFrame) av_frame_free(&scaleFrame);
     ANativeWindow_release(window);
     return VIDEO_DECODER_ERROR_OTHER;
   }
 
-  // Manual YUV plane copying (I420Copy-style, no libyuv dependency)
-  // ANativeWindow YV12 layout:
-  //   - Y plane at offset 0, stride = winBuf.stride pixels
-  //   - V plane at offset (height * stride) pixels, stride = stride/2 pixels
-  //   - U plane at offset (height * stride + height/2 * stride/2) pixels
+  // Copy YUV planes to ANativeWindow buffer
   uint8_t* dst = (uint8_t*)winBuf.bits;
-  int dstYStride = winBuf.stride;         // stride in pixels for Y
-  int dstVStride = dstYStride / 2;        // stride in pixels for V
-  int dstUStride = dstYStride / 2;        // stride in pixels for U
+  int dstYStride = winBuf.stride;
+  int dstUVStride = dstYStride / 2;
   int uvHeight = height / 2;
   int uvWidth = width / 2;
 
-  // Y plane: row-by-row copy with stride alignment
-  for (int y = 0; y < height; y++) {
-    memcpy(dst + y * dstYStride,
-           scaleFrame->data[0] + y * scaleFrame->linesize[0],
-           width);
+  // Y plane
+  if (srcStrideY == dstYStride) {
+    memcpy(dst, srcY, (size_t)dstYStride * height);
+  } else {
+    for (int y = 0; y < height; y++) {
+      memcpy(dst + y * dstYStride, srcY + y * srcStrideY, width);
+    }
   }
 
-  // V plane (YV12: V comes before U, source is scaleFrame->data[2])
-  uint8_t* dstV = dst + dstYStride * height;
-  for (int y = 0; y < uvHeight; y++) {
-    memcpy(dstV + y * dstVStride,
-           scaleFrame->data[2] + y * scaleFrame->linesize[2],
-           uvWidth);
+  // V plane (YV12: V before U)
+  uint8_t* dstV = dst + (size_t)dstYStride * height;
+  if (srcStrideV == dstUVStride) {
+    memcpy(dstV, srcV, (size_t)dstUVStride * uvHeight);
+  } else {
+    for (int y = 0; y < uvHeight; y++) {
+      memcpy(dstV + y * dstUVStride, srcV + y * srcStrideV, uvWidth);
+    }
   }
 
-  // U plane (YV12: U comes after V, source is scaleFrame->data[1])
-  uint8_t* dstU = dstV + dstVStride * uvHeight;
-  for (int y = 0; y < uvHeight; y++) {
-    memcpy(dstU + y * dstUStride,
-           scaleFrame->data[1] + y * scaleFrame->linesize[1],
-           uvWidth);
+  // U plane (YV12: U after V)
+  uint8_t* dstU = dstV + (size_t)dstUVStride * uvHeight;
+  if (srcStrideU == dstUVStride) {
+    memcpy(dstU, srcU, (size_t)dstUVStride * uvHeight);
+  } else {
+    for (int y = 0; y < uvHeight; y++) {
+      memcpy(dstU + y * dstUVStride, srcU + y * srcStrideU, uvWidth);
+    }
   }
 
   ANativeWindow_unlockAndPost(window);
-  av_free(scaleBuffer);
-  av_frame_free(&scaleFrame);
 
+  if (scaleBuffer) av_free(scaleBuffer);
+  if (scaleFrame) av_frame_free(&scaleFrame);
   ANativeWindow_release(window);
-
   return 0;
 }
 
 /**
- * Returns the width of the current decoded frame.
+ * Releases a per-frame AVFrame reference.
+ * Called when the output buffer is returned to the pool.
  */
+VIDEO_DECODER_FUNC(void, ffmpegVideoReleaseFrame, jlong frameHandle) {
+  if (frameHandle) {
+    AVFrame* frame = (AVFrame*)frameHandle;
+    av_frame_free(&frame);
+  }
+}
+
+/** Returns the width of the current decoded frame. */
 VIDEO_DECODER_FUNC(jint, ffmpegVideoGetWidth, jlong context) {
   JniContext* ctx = (JniContext*)context;
-  if (!ctx || !ctx->codecContext) {
-    return -1;
-  }
+  if (!ctx || !ctx->codecContext) return -1;
   return ctx->codecContext->width;
 }
 
-/**
- * Returns the height of the current decoded frame.
- */
+/** Returns the height of the current decoded frame. */
 VIDEO_DECODER_FUNC(jint, ffmpegVideoGetHeight, jlong context) {
   JniContext* ctx = (JniContext*)context;
-  if (!ctx || !ctx->codecContext) {
-    return -1;
-  }
+  if (!ctx || !ctx->codecContext) return -1;
   return ctx->codecContext->height;
 }
 
-/**
- * Returns the PTS of the current decoded frame in microseconds.
- */
+/** Returns the PTS of the current decoded frame in microseconds. */
 VIDEO_DECODER_FUNC(jlong, ffmpegVideoGetPts, jlong context) {
   JniContext* ctx = (JniContext*)context;
-  if (!ctx || !ctx->codecContext || !ctx->currentFrame->buf[0]) {
-    return -1;
-  }
+  if (!ctx || !ctx->codecContext || !ctx->currentFrame->buf[0]) return -1;
   return ctx->currentFrame->pts;
 }
 
 /**
- * Copies the current decoded frame's YUV data into direct ByteBuffers using
- * manual plane copying (no libyuv).
- *
- * @param context  Native context pointer
- * @param yBuffer  Direct ByteBuffer for Y plane data
- * @param uBuffer  Direct ByteBuffer for U plane data
- * @param vBuffer  Direct ByteBuffer for V plane data
- * @return         0 on success, negative on error
+ * Copies the current decoded frame's YUV data into direct ByteBuffers.
+ * Skips sws_scale when source is already YUV420P for better performance.
  */
 VIDEO_DECODER_FUNC(jint, ffmpegVideoCopyFrameData, jlong context,
                    jobject yBuffer, jobject uBuffer, jobject vBuffer) {
@@ -847,91 +876,85 @@ VIDEO_DECODER_FUNC(jint, ffmpegVideoCopyFrameData, jlong context,
 
   int width = ctx->codecContext->width;
   int height = ctx->codecContext->height;
+  AVFrame* frame = ctx->currentFrame;
 
-  // Use swscale for stride-aligned YUV420P output (same pattern as render)
-  if (!ctx->swsContext) {
-    ctx->swsContext = sws_getContext(
-        width, height, ctx->codecContext->pix_fmt,
-        width, height, AV_PIX_FMT_YUV420P,
-        SWS_BILINEAR, NULL, NULL, NULL);
+  bool needScale = (frame->format != AV_PIX_FMT_YUV420P);
+
+  const uint8_t* srcY;
+  const uint8_t* srcU;
+  const uint8_t* srcV;
+  int srcStrideY, srcStrideU, srcStrideV;
+
+  AVFrame* scaleFrame = NULL;
+  uint8_t* scaleBuffer = NULL;
+
+  if (needScale) {
     if (!ctx->swsContext) {
-      LOGE("Failed to create swscale context for frame copy.");
-      return VIDEO_DECODER_ERROR_OTHER;
-    }
-  }
-
-  AVFrame* scaleFrame = av_frame_alloc();
-  int numBytes = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, width, height, 1);
-  uint8_t* scaleBuffer = (uint8_t*)av_malloc(numBytes);
-  av_image_fill_arrays(scaleFrame->data, scaleFrame->linesize, scaleBuffer,
-                       AV_PIX_FMT_YUV420P, width, height, 1);
-
-  sws_scale(ctx->swsContext,
-            (const uint8_t* const*)ctx->currentFrame->data,
-            ctx->currentFrame->linesize,
-            0, height,
-            scaleFrame->data, scaleFrame->linesize);
-
-  // Manual plane copying to Java ByteBuffers
-  uint8_t* yDst = (uint8_t*)env->GetDirectBufferAddress(yBuffer);
-  if (yDst) {
-    int ySize = width * height;
-    if (scaleFrame->linesize[0] == width) {
-      memcpy(yDst, scaleFrame->data[0], ySize);
-    } else {
-      for (int y = 0; y < height; y++) {
-        memcpy(yDst + y * width,
-               scaleFrame->data[0] + y * scaleFrame->linesize[0],
-               width);
+      ctx->swsContext = sws_getContext(
+          width, height, (AVPixelFormat)frame->format,
+          width, height, AV_PIX_FMT_YUV420P,
+          SWS_BILINEAR, NULL, NULL, NULL);
+      if (!ctx->swsContext) {
+        LOGE("Failed to create swscale context for frame copy.");
+        return VIDEO_DECODER_ERROR_OTHER;
       }
+      setSwsColorspace(ctx->swsContext);
     }
+    scaleFrame = av_frame_alloc();
+    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, width, height, 1);
+    scaleBuffer = (uint8_t*)av_malloc(numBytes);
+    av_image_fill_arrays(scaleFrame->data, scaleFrame->linesize, scaleBuffer,
+                         AV_PIX_FMT_YUV420P, width, height, 1);
+    sws_scale(ctx->swsContext,
+              (const uint8_t* const*)frame->data, frame->linesize,
+              0, height, scaleFrame->data, scaleFrame->linesize);
+    srcY = scaleFrame->data[0]; srcU = scaleFrame->data[1]; srcV = scaleFrame->data[2];
+    srcStrideY = scaleFrame->linesize[0]; srcStrideU = scaleFrame->linesize[1];
+    srcStrideV = scaleFrame->linesize[2];
+  } else {
+    srcY = frame->data[0]; srcU = frame->data[1]; srcV = frame->data[2];
+    srcStrideY = frame->linesize[0]; srcStrideU = frame->linesize[1];
+    srcStrideV = frame->linesize[2];
   }
 
   int uvWidth = width / 2;
   int uvHeight = height / 2;
 
+  uint8_t* yDst = (uint8_t*)env->GetDirectBufferAddress(yBuffer);
+  if (yDst) {
+    if (srcStrideY == width) {
+      memcpy(yDst, srcY, (size_t)width * height);
+    } else {
+      for (int y = 0; y < height; y++)
+        memcpy(yDst + y * width, srcY + y * srcStrideY, width);
+    }
+  }
   uint8_t* uDst = (uint8_t*)env->GetDirectBufferAddress(uBuffer);
   if (uDst) {
-    int uSize = uvWidth * uvHeight;
-    if (scaleFrame->linesize[1] == uvWidth) {
-      memcpy(uDst, scaleFrame->data[1], uSize);
+    if (srcStrideU == uvWidth) {
+      memcpy(uDst, srcU, (size_t)uvWidth * uvHeight);
     } else {
-      for (int y = 0; y < uvHeight; y++) {
-        memcpy(uDst + y * uvWidth,
-               scaleFrame->data[1] + y * scaleFrame->linesize[1],
-               uvWidth);
-      }
+      for (int y = 0; y < uvHeight; y++)
+        memcpy(uDst + y * uvWidth, srcU + y * srcStrideU, uvWidth);
     }
   }
-
   uint8_t* vDst = (uint8_t*)env->GetDirectBufferAddress(vBuffer);
   if (vDst) {
-    int vSize = uvWidth * uvHeight;
-    if (scaleFrame->linesize[2] == uvWidth) {
-      memcpy(vDst, scaleFrame->data[2], vSize);
+    if (srcStrideV == uvWidth) {
+      memcpy(vDst, srcV, (size_t)uvWidth * uvHeight);
     } else {
-      for (int y = 0; y < uvHeight; y++) {
-        memcpy(vDst + y * uvWidth,
-               scaleFrame->data[2] + y * scaleFrame->linesize[2],
-               uvWidth);
-      }
+      for (int y = 0; y < uvHeight; y++)
+        memcpy(vDst + y * uvWidth, srcV + y * srcStrideV, uvWidth);
     }
   }
 
-  av_free(scaleBuffer);
-  av_frame_free(&scaleFrame);
+  if (scaleBuffer) av_free(scaleBuffer);
+  if (scaleFrame) av_frame_free(&scaleFrame);
   return 0;
 }
 
-/**
- * Resets the video decoder (flush internal buffers).
- *
- * @param context   Native context pointer
- * @param extraData Optional new extradata (may be NULL to keep current)
- * @return          Native context pointer (same or recreated), 0 on failure
- */
-VIDEO_DECODER_FUNC(jlong, ffmpegVideoReset, jlong context,
-                   jbyteArray extraData) {
+/** Resets the video decoder (flush internal buffers). */
+VIDEO_DECODER_FUNC(jlong, ffmpegVideoReset, jlong context, jbyteArray extraData) {
   JniContext* ctx = (JniContext*)context;
   if (!ctx || !ctx->codecContext) {
     LOGE("Tried to reset without a video decoder context.");
@@ -940,39 +963,24 @@ VIDEO_DECODER_FUNC(jlong, ffmpegVideoReset, jlong context,
 
   AVCodecID codecId = ctx->codecContext->codec_id;
   AVCodecContext* codecCtx = ctx->codecContext;
-
-  // Flush decoder buffers (this keeps the codec context alive)
   avcodec_flush_buffers(codecCtx);
 
-  // If new extradata is provided, re-open the codec
   if (extraData) {
-    // Release current context
-    if (ctx->swsContext) {
-      sws_freeContext(ctx->swsContext);
-      ctx->swsContext = NULL;
-    }
+    if (ctx->swsContext) { sws_freeContext(ctx->swsContext); ctx->swsContext = NULL; }
     av_frame_unref(ctx->currentFrame);
     avcodec_free_context(&codecCtx);
     ctx->codecContext = NULL;
 
     const AVCodec* codec = avcodec_find_decoder(codecId);
-    if (!codec) {
-      LOGE("Unexpected error finding video codec %d.", codecId);
-      return 0L;
-    }
+    if (!codec) { LOGE("Video codec %d not found.", codecId); return 0L; }
 
     AVCodecContext* newContext = avcodec_alloc_context3(codec);
-    if (!newContext) {
-      LOGE("Failed to allocate new video codec context.");
-      return 0L;
-    }
+    if (!newContext) { LOGE("Failed to allocate new video codec context."); return 0L; }
 
     jsize size = env->GetArrayLength(extraData);
     newContext->extradata_size = size;
-    newContext->extradata =
-        (uint8_t*)av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
+    newContext->extradata = (uint8_t*)av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
     if (!newContext->extradata) {
-      LOGE("Failed to allocate extradata on reset.");
       avcodec_free_context(&newContext);
       return 0L;
     }
@@ -985,30 +993,17 @@ VIDEO_DECODER_FUNC(jlong, ffmpegVideoReset, jlong context,
       avcodec_free_context(&newContext);
       return 0L;
     }
-
     ctx->codecContext = newContext;
   }
-
   return (jlong)ctx;
 }
 
-/**
- * Releases the video decoder and all associated resources.
- */
+/** Releases the video decoder and all associated resources. */
 VIDEO_DECODER_FUNC(void, ffmpegVideoRelease, jlong context) {
   JniContext* ctx = (JniContext*)context;
-  if (!ctx) {
-    return;
-  }
-  if (ctx->swsContext) {
-    sws_freeContext(ctx->swsContext);
-    ctx->swsContext = NULL;
-  }
-  if (ctx->currentFrame) {
-    av_frame_free(&ctx->currentFrame);
-  }
-  if (ctx->codecContext) {
-    avcodec_free_context(&ctx->codecContext);
-  }
+  if (!ctx) return;
+  if (ctx->swsContext) { sws_freeContext(ctx->swsContext); ctx->swsContext = NULL; }
+  if (ctx->currentFrame) { av_frame_free(&ctx->currentFrame); }
+  if (ctx->codecContext) { avcodec_free_context(&ctx->codecContext); }
   delete ctx;
 }
