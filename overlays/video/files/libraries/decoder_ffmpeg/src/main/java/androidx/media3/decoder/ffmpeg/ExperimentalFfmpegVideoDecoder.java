@@ -160,7 +160,7 @@ import java.nio.ByteBuffer;
       int uvSize = (decodedWidth / 2) * (decodedHeight / 2);
       int totalSize = ySize + 2 * uvSize;
 
-      ByteBuffer outputData = outputBuffer.init(framePts >= 0 ? framePts : pts, totalSize);
+      ByteBuffer outputData = outputBuffer.init(framePts >= 0 ? framePts : pts, totalSize, null);
       outputData.position(0);
       outputData.limit(totalSize);
 

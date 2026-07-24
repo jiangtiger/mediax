@@ -93,8 +93,8 @@ public final class ExperimentalFfmpegVideoRenderer extends DecoderVideoRenderer 
     } else {
       return RendererCapabilities.create(
           C.FORMAT_HANDLED,
-          C.ADAPTIVE_NOT_SEAMLESS,
-          C.TUNNELING_NOT_SUPPORTED);
+          RendererCapabilities.ADAPTIVE_NOT_SEAMLESS,
+          RendererCapabilities.TUNNELING_NOT_SUPPORTED);
     }
   }
 

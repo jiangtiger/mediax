@@ -41,6 +41,11 @@ path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
+# media3 1.8.0 已自带 video/mpeg2 → mpeg2video 映射，仅在缺失时添加
+if 'VIDEO_MPEG2' in content or 'video/mpeg2' in content:
+    print('    FfmpegLibrary 已包含 MPEG2 映射，跳过')
+    sys.exit(0)
+
 # 插入 MimeTypes.VIDEO_MPEG2 映射（在 case MimeTypes.VIDEO_H265 之后，default 之前）
 old_h265 = '''      case MimeTypes.VIDEO_H265:
         return "hevc";
@@ -52,8 +57,6 @@ if old_h265 not in content:
 new_mpeg2 = '''      case MimeTypes.VIDEO_H265:
         return "hevc";
       case MimeTypes.VIDEO_MPEG2:
-        return "mpeg2video";
-      case "video/mpeg2":
         return "mpeg2video";
       default:'''
 content = content.replace(old_h265, new_mpeg2)
