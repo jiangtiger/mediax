@@ -160,18 +160,21 @@ import java.nio.ByteBuffer;
       int uvSize = (decodedWidth / 2) * (decodedHeight / 2);
       int totalSize = ySize + 2 * uvSize;
 
-      ByteBuffer outputData = outputBuffer.init(framePts >= 0 ? framePts : pts, totalSize, null);
-      outputData.position(0);
-      outputData.limit(totalSize);
+      // Set timestamp on output buffer (media3 1.8.0: init returns void, not ByteBuffer)
+      outputBuffer.init(framePts >= 0 ? framePts : pts, 0, null);
 
-      ByteBuffer yPlane = outputBuffer.data.slice();
+      // Allocate buffer for YUV data
+      ByteBuffer outputData = ByteBuffer.allocateDirect(totalSize);
+      outputBuffer.data = outputData;
+
+      ByteBuffer yPlane = outputData.slice();
       yPlane.limit(ySize);
 
-      ByteBuffer uPlane = outputBuffer.data.slice();
+      ByteBuffer uPlane = outputData.slice();
       uPlane.position(ySize);
       uPlane.limit(uPlane.position() + uvSize);
 
-      ByteBuffer vPlane = outputBuffer.data.slice();
+      ByteBuffer vPlane = outputData.slice();
       vPlane.position(ySize + uvSize);
       vPlane.limit(vPlane.position() + uvSize);
 
